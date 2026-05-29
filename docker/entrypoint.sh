@@ -100,43 +100,93 @@ log "MariaDB is ready."
 
 cd "${APP_ROOT}"
 
+# ── Small MySQL helpers (reused by the migration logic below) ────────────────
+# _sql  <statement>  → run a statement, ignore output
+# _scalar <query>    → run a query, echo the single returned value (0 on error)
+_sql() {
+    mysql -h"${DB_HOST_VAL}" -P"${DB_PORT_VAL}" \
+          -u"${DB_USER_VAL}" -p"${DB_PASS_VAL}" "${DB_NAME_VAL}" \
+          -e "$1" 2>/dev/null
+}
+_scalar() {
+    mysql -h"${DB_HOST_VAL}" -P"${DB_PORT_VAL}" \
+          -u"${DB_USER_VAL}" -p"${DB_PASS_VAL}" "${DB_NAME_VAL}" \
+          -se "$1" 2>/dev/null || echo "0"
+}
+
 # ── 4. Smart migrations ───────────────────────────────────────────────────────
 # The SQL dump imports all tables but leaves the migrations table empty.
 # Running `migrate` then fails on "Table users already exists" and never
-# reaches new migrations (call_logs, etc.).
+# reaches new migrations (call_logs, dial_locks, etc.).
 #
-# Fix: if migrate fails AND tables already exist, populate the migrations
-# table from the filesystem, then re-run migrate (only new ones execute).
+# Fix: if migrate fails AND tables already exist, reconcile the migrations
+# table by applying each migration individually, IN ORDER:
+#   • migrations whose schema is already present fail harmlessly and are simply
+#     recorded as applied (baseline) so they are never retried;
+#   • genuinely new migrations (e.g. dial_locks) run and are recorded by Laravel.
+# This is correct for BOTH create- and alter-migrations without guessing which
+# tables/columns a migration touches — the previous version blindly marked ALL
+# migrations as complete, which left new tables (dial_locks) permanently absent.
 log "Running migrations ..."
 if ! php artisan migrate --force --ansi 2>&1; then
-    USERS_EXISTS=$(mysql \
-        -h"${DB_HOST_VAL}" -P"${DB_PORT_VAL}" \
-        -u"${DB_USER_VAL}" -p"${DB_PASS_VAL}" "${DB_NAME_VAL}" \
-        -se "SELECT COUNT(*) FROM information_schema.tables \
-             WHERE table_schema='${DB_NAME_VAL}' AND table_name='users';" \
-        2>/dev/null || echo "0")
+    USERS_EXISTS=$(_scalar "SELECT COUNT(*) FROM information_schema.tables \
+                            WHERE table_schema='${DB_NAME_VAL}' AND table_name='users';")
 
     if [ "${USERS_EXISTS}" = "1" ]; then
-        log "SQL dump detected — marking existing migrations as complete ..."
-        VALUES=$(find "${APP_ROOT}/database/migrations" -name "*.php" | sort | \
-            awk -F'/' '{n=$NF; sub(/\.php$/,"",n); printf "(\"%s\",0),",n}' | \
-            sed 's/,$//')
-        if [ -n "${VALUES}" ]; then
-            mysql -h"${DB_HOST_VAL}" -P"${DB_PORT_VAL}" \
-                  -u"${DB_USER_VAL}" -p"${DB_PASS_VAL}" "${DB_NAME_VAL}" \
-                  -e "INSERT IGNORE INTO migrations (migration,batch) VALUES ${VALUES};" \
-                  2>/dev/null \
-                && log "Migrations table populated." \
-                || log "WARN: Could not populate migrations table."
-        fi
-        log "Running new migrations ..."
-        php artisan migrate --force --ansi 2>&1 \
-            || log "WARN: Some new migrations failed (may need schema review)."
+        log "Existing schema detected (SQL dump) — reconciling migrations one-by-one ..."
+        for f in $(find "${APP_ROOT}/database/migrations" -name "*.php" | sort); do
+            name=$(basename "$f" .php)
+            rel="database/migrations/$(basename "$f")"
+
+            # Already recorded? nothing to do.
+            DONE=$(_scalar "SELECT COUNT(*) FROM migrations WHERE migration='${name}';")
+            [ "${DONE}" != "0" ] && continue
+
+            if php artisan migrate --force --ansi --path="${rel}" >/dev/null 2>&1; then
+                log "  applied  ${name}"
+            else
+                # Schema already present from the dump → mark applied, don't retry.
+                _sql "INSERT IGNORE INTO migrations (migration,batch) VALUES ('${name}',1);"
+                log "  baseline ${name} (schema already present)"
+            fi
+        done
     else
         log "WARN: Migration failed and users table not found — DB may be empty."
     fi
 fi
 log "Migrations done."
+
+# ── 4b. Self-heal feature schema ─────────────────────────────────────────────
+# Older entrypoint versions baselined ALL migrations at once, marking some as
+# "applied" without ever creating their tables/columns. That left databases
+# where, e.g., `dial_locks` is recorded as migrated but does not exist — causing
+# "Base table or view not found: dial_locks" on click-to-dial.
+#
+# For each feature migration, if its schema is actually missing we drop the
+# stale migration record and re-apply just that migration. All listed migrations
+# are idempotent (or only run here when their target is absent), so this is safe
+# to run on every startup; it is a no-op once the schema is present.
+heal() {                                  # $1 = migration name   $2 = "exists" query
+    local name="$1" test_sql="$2"
+    if [ "$(_scalar "${test_sql}")" = "0" ]; then
+        log "Self-heal: schema for ${name} missing — re-applying ..."
+        _sql "DELETE FROM migrations WHERE migration='${name}';"
+        php artisan migrate --force --ansi --path="database/migrations/${name}.php" 2>&1 \
+            || log "WARN: self-heal of ${name} failed."
+    fi
+}
+SCHEMA="table_schema='${DB_NAME_VAL}'"
+heal "2026_05_28_170000_ensure_call_logs_table" \
+     "SELECT COUNT(*) FROM information_schema.tables  WHERE ${SCHEMA} AND table_name='call_logs';"
+heal "2026_05_28_180000_create_dial_locks_table" \
+     "SELECT COUNT(*) FROM information_schema.tables  WHERE ${SCHEMA} AND table_name='dial_locks';"
+heal "2026_05_28_190000_add_call_count_to_dial_locks" \
+     "SELECT COUNT(*) FROM information_schema.columns WHERE ${SCHEMA} AND table_name='dial_locks' AND column_name='call_count';"
+heal "2026_05_28_163825_add_sip_credentials_to_users_table" \
+     "SELECT COUNT(*) FROM information_schema.columns WHERE ${SCHEMA} AND table_name='users' AND column_name='sip_extension';"
+heal "2026_05_29_120000_add_normalized_phone_columns_to_applicants_table" \
+     "SELECT COUNT(*) FROM information_schema.columns WHERE ${SCHEMA} AND table_name='applicants' AND column_name='applicant_phone_normalized';"
+log "Schema self-heal done."
 
 # ── 5. Seed database on first start ───────────────────────────────────────────
 # SEED_DATABASE: auto | true | force | false  (default: auto)
