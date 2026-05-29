@@ -48,9 +48,12 @@ Route::post('message_receive', [CommunicationController::class, 'messageReceive'
 // Route group with authentication middleware
 Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
     // Click-to-dial collision control — lock a number while an agent calls it
-    Route::get('dialing/info',     [DialLockController::class, 'info'])->name('dialing.info');
-    Route::post('dialing/acquire', [DialLockController::class, 'acquire'])->name('dialing.acquire');
-    Route::post('dialing/release', [DialLockController::class, 'release'])->name('dialing.release');
+    Route::get('dialing/info',          [DialLockController::class, 'info'])->name('dialing.info');
+    Route::post('dialing/acquire',      [DialLockController::class, 'acquire'])->name('dialing.acquire');
+    Route::post('dialing/release',      [DialLockController::class, 'release'])->name('dialing.release');
+    Route::get('dialing/active-locks',  [DialLockController::class, 'activeList'])->name('dialing.active-locks');
+    Route::post('dialing/clear-lock',   [DialLockController::class, 'clearLock'])->name('dialing.clear-lock');
+    Route::post('dialing/clear-all-locks', [DialLockController::class, 'clearAllLocks'])->name('dialing.clear-all-locks');
 
     Route::group(['prefix' => 'dashboard'], function () {
         Route::get('', [DashboardController::class, 'index'])->name('dashboard.index');
@@ -479,8 +482,9 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
     Route::post('save-sms-settings', [SettingController::class, 'saveSmsSettings'])->name('settings.sms.save');
     Route::post('save-google-settings', [SettingController::class, 'saveGoogleSettings'])->name('settings.google.save');
     Route::post('save-notification-settings', [SettingController::class, 'saveNotificationSettings'])->name('settings.notification.save');
-    Route::post('save-smtp-settings', [SettingController::class, 'saveSmtpSettings'])->name('settings.smtp.save');
+    Route::post('save-smtp-settings',    [SettingController::class, 'saveSmtpSettings'])->name('settings.smtp.save');
     Route::post('delete-smtp-settings', [SettingController::class, 'deleteSmtp'])->name('settings.smtp.delete');
+    Route::post('save-dialing-settings', [SettingController::class, 'saveDialingSettings'])->name('settings.dialing.save');
 
     Route::post('module-notes/store', [ModuleNotesController::class, 'store'])->name('moduleNotes.store');
     Route::get('getModuleNotesHistory', [ModuleNotesController::class, 'getModuleNotesHistory'])->name('getModuleNotesHistory');

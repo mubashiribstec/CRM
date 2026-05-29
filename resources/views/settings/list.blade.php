@@ -29,6 +29,14 @@
         .smtp-entry:not(:first-child) .remove-smtp-btn {
             display: block;
         }
+        /* Dial Lock Settings */
+        .dial-timer-card { border-width: 2px; }
+        .dial-timer-card .card-header { font-size: .85rem; }
+        .dial-preview-badge { font-size: .95rem; min-width: 220px; }
+        .lock-row-expiring { background-color: rgba(220,53,69,.06); }
+        #active-locks-table td { vertical-align: middle; font-size: .88rem; }
+        .countdown-cell { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 60px; display: inline-block; }
+        .stat-pill { border-radius: 12px; padding: 14px 18px; color: #fff; text-align: center; min-width: 110px; }
     </style>
 @endsection
 @section('content')
@@ -47,6 +55,7 @@
                         <button class="list-group-item list-group-item-action" data-target="#form-notifications" type="button" id="menu-notifications" aria-controls="form-notifications">Notification Settings</button>
                         <button class="list-group-item list-group-item-action" data-target="#form-sms" type="button" id="menu-sms" aria-controls="form-sms">SMS Settings</button>
                         <button class="list-group-item list-group-item-action" data-target="#form-smtp" type="button" id="menu-smtp" aria-controls="form-smtp">SMTP Settings</button>
+                        <button class="list-group-item list-group-item-action" data-target="#form-dialing" type="button" id="menu-dialing" aria-controls="form-dialing">Dial Lock Settings</button>
                     </div>
                 </div>
             </div>
@@ -152,6 +161,153 @@
                                 </div>
                             </form>
                         </section>
+                        <!-- Dial Lock Settings -->
+                        <section id="form-dialing" class="settings-form-section">
+
+                            {{-- Stats row --}}
+                            <div class="d-flex gap-3 flex-wrap mb-4" id="dial-stats-row">
+                                <div class="stat-pill bg-primary">
+                                    <div class="fs-4 fw-bold" id="stat-active-locks">–</div>
+                                    <small>Active Locks</small>
+                                </div>
+                                <div class="stat-pill bg-success">
+                                    <div class="fs-4 fw-bold" id="stat-calls-today">–</div>
+                                    <small>Calls Today</small>
+                                </div>
+                            </div>
+
+                            <form id="dialingSettingsForm" data-type="dialing">
+                                @csrf
+
+                                {{-- Master toggle --}}
+                                <div class="d-flex align-items-center gap-3 mb-4 p-3 border rounded bg-light">
+                                    <div class="form-check form-switch m-0">
+                                        <input class="form-check-input" type="checkbox" role="switch"
+                                               id="dialing_lock_enabled" name="dialing_lock_enabled"
+                                               style="width:3em;height:1.5em" checked>
+                                        <label class="form-check-label fw-bold fs-6 ms-2" for="dialing_lock_enabled">
+                                            Dial Lock System
+                                        </label>
+                                    </div>
+                                    <span id="dial-lock-status-badge" class="badge bg-success px-3 py-2 fs-6">Enabled</span>
+                                    <small class="text-muted ms-auto">When disabled, any agent can dial any number at any time.</small>
+                                </div>
+
+                                {{-- Timer controls --}}
+                                <div id="dial-lock-controls" class="row g-4 mb-4">
+
+                                    {{-- Same agent --}}
+                                    <div class="col-md-6">
+                                        <div class="card dial-timer-card border-warning h-100">
+                                            <div class="card-header bg-warning bg-opacity-10 d-flex align-items-center gap-2">
+                                                <span style="font-size:1.2rem">🔒</span>
+                                                <div>
+                                                    <div class="fw-bold">Same Agent Re-dial Lock</div>
+                                                    <small class="text-muted">How long the dialling agent is blocked from re-calling the same number</small>
+                                                </div>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="d-flex align-items-center gap-3 mb-3">
+                                                    <input type="range" class="form-range flex-grow-1"
+                                                           id="same_user_slider" min="0" max="60" step="1" value="0">
+                                                    <div class="input-group" style="width:110px">
+                                                        <input type="number" class="form-control text-center fw-bold"
+                                                               id="dialing_lock_same_user_minutes"
+                                                               name="dialing_lock_same_user_minutes"
+                                                               min="0" max="60" value="0">
+                                                        <span class="input-group-text">min</span>
+                                                    </div>
+                                                </div>
+                                                <div class="text-center">
+                                                    <span id="same-user-preview" class="badge dial-preview-badge bg-secondary px-3 py-2">
+                                                        Same agent: can re-dial immediately
+                                                    </span>
+                                                </div>
+                                                <div class="mt-2 text-center">
+                                                    <small class="text-muted">Set to <strong>0</strong> to let the same agent re-dial without any wait.</small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {{-- Other agents --}}
+                                    <div class="col-md-6">
+                                        <div class="card dial-timer-card border-danger h-100">
+                                            <div class="card-header bg-danger bg-opacity-10 d-flex align-items-center gap-2">
+                                                <span style="font-size:1.2rem">🚫</span>
+                                                <div>
+                                                    <div class="fw-bold">Other Agents Lock</div>
+                                                    <small class="text-muted">How long all other agents are blocked from calling a number in use</small>
+                                                </div>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="d-flex align-items-center gap-3 mb-3">
+                                                    <input type="range" class="form-range flex-grow-1"
+                                                           id="other_user_slider" min="1" max="60" step="1" value="5">
+                                                    <div class="input-group" style="width:110px">
+                                                        <input type="number" class="form-control text-center fw-bold"
+                                                               id="dialing_lock_other_user_minutes"
+                                                               name="dialing_lock_other_user_minutes"
+                                                               min="1" max="60" value="5">
+                                                        <span class="input-group-text">min</span>
+                                                    </div>
+                                                </div>
+                                                <div class="text-center">
+                                                    <span id="other-user-preview" class="badge dial-preview-badge bg-danger px-3 py-2">
+                                                        Other agents: locked for 5 min
+                                                    </span>
+                                                </div>
+                                                <div class="mt-2 text-center">
+                                                    <small class="text-muted">Minimum <strong>1 min</strong>. Recommended: 3–10 min.</small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="d-flex justify-content-between align-items-center mb-4">
+                                    <button type="button" class="btn btn-outline-danger" id="clearAllLocksBtn">
+                                        Clear All Active Locks
+                                    </button>
+                                    <button type="submit" class="btn btn-success px-4">Save Dial Lock Settings</button>
+                                </div>
+                            </form>
+
+                            {{-- Active Locks Live Table --}}
+                            <div class="border rounded p-3 bg-light">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <h6 class="mb-0 fw-bold">
+                                        Active Locks
+                                        <span class="badge bg-danger ms-1" id="locks-count-badge">0</span>
+                                    </h6>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="text-muted" style="font-size:.8rem" id="locks-last-refresh"></span>
+                                        <span class="badge bg-secondary" style="font-size:.75rem">Live · refreshes every 5s</span>
+                                    </div>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover align-middle mb-0" id="active-locks-table">
+                                        <thead class="table-dark">
+                                            <tr>
+                                                <th>Number</th>
+                                                <th>Agent</th>
+                                                <th>Locked At</th>
+                                                <th>Expires In</th>
+                                                <th>Total Calls</th>
+                                                <th class="text-end">Release</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="active-locks-body">
+                                            <tr id="no-locks-row">
+                                                <td colspan="6" class="text-center text-muted py-3">No active locks</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                        </section>
+
                         <!-- SMTP Settings Form -->
                         <section id="form-smtp" class="settings-form-section">
                             <form id="smtpSettingsForm" data-type="smtp">
@@ -303,6 +459,11 @@
                         $('#sms_port').val(data.sms.sms_port || '');
                         $('#sms_username').val(data.sms.sms_username || '');
                         $('#sms_password').val(data.sms.sms_password || '');
+                    }
+
+                    // Dial Lock Settings
+                    if (data.dialing) {
+                        $(document).trigger('dialingSettingsLoaded', [data.dialing]);
                     }
 
                     // SMTP Settings
@@ -706,6 +867,262 @@
                         }
                     });
                 }
+            });
+
+            // ── Dial Lock Settings ──────────────────────────────────────────────────
+
+            var dialLocksRefreshTimer = null;
+            var dialCountdownTimer    = null;
+
+            // Sync slider ↔ number input and update preview badge
+            function bindDialSlider(sliderId, inputId, previewId, isSameUser) {
+                var $slider = $('#' + sliderId);
+                var $input  = $('#' + inputId);
+                var $preview = $('#' + previewId);
+
+                function updatePreview(val) {
+                    val = parseInt(val, 10);
+                    if (isSameUser) {
+                        if (val === 0) {
+                            $preview.removeClass('bg-warning bg-danger').addClass('bg-secondary')
+                                    .text('Same agent: can re-dial immediately');
+                        } else {
+                            $preview.removeClass('bg-secondary bg-danger').addClass('bg-warning text-dark')
+                                    .text('Same agent: locked for ' + val + ' min' + (val === 1 ? '' : 's'));
+                        }
+                    } else {
+                        $preview.text('Other agents: locked for ' + val + ' min' + (val === 1 ? '' : 's'));
+                    }
+                }
+
+                $slider.on('input', function () {
+                    var v = $(this).val();
+                    $input.val(v);
+                    updatePreview(v);
+                });
+
+                $input.on('input change', function () {
+                    var min = parseInt($(this).attr('min'), 10);
+                    var max = parseInt($(this).attr('max'), 10);
+                    var v   = Math.min(max, Math.max(min, parseInt($(this).val(), 10) || min));
+                    $(this).val(v);
+                    $slider.val(v);
+                    updatePreview(v);
+                });
+            }
+
+            bindDialSlider('same_user_slider',  'dialing_lock_same_user_minutes',  'same-user-preview',  true);
+            bindDialSlider('other_user_slider', 'dialing_lock_other_user_minutes', 'other-user-preview', false);
+
+            // Master toggle badge
+            $('#dialing_lock_enabled').on('change', function () {
+                var on = $(this).is(':checked');
+                $('#dial-lock-status-badge')
+                    .removeClass('bg-success bg-secondary')
+                    .addClass(on ? 'bg-success' : 'bg-secondary')
+                    .text(on ? 'Enabled' : 'Disabled');
+                $('#dial-lock-controls').toggleClass('opacity-50 pe-none', !on);
+            });
+
+            // Load dialing values from the getSettings response
+            // (called after the main AJAX succeeds — we hook in via a custom event)
+            $(document).on('dialingSettingsLoaded', function (e, data) {
+                if (!data) return;
+                var enabled  = data.dialing_lock_enabled !== false && data.dialing_lock_enabled !== 'false' && data.dialing_lock_enabled !== 0;
+                var sameMin  = parseInt(data.dialing_lock_same_user_minutes,  10) || 0;
+                var otherMin = parseInt(data.dialing_lock_other_user_minutes, 10) || 5;
+
+                $('#dialing_lock_enabled').prop('checked', enabled).trigger('change');
+                $('#dialing_lock_same_user_minutes').val(sameMin).trigger('change');
+                $('#same_user_slider').val(sameMin);
+                $('#dialing_lock_other_user_minutes').val(otherMin).trigger('change');
+                $('#other_user_slider').val(otherMin);
+                $('#same-user-preview').trigger('updatePreview');
+            });
+
+            // ── Active locks table ──────────────────────────────────────────────
+
+            function formatCountdown(seconds) {
+                if (seconds <= 0) return '<span class="text-muted">Expiring…</span>';
+                var m = Math.floor(seconds / 60);
+                var s = seconds % 60;
+                var color = seconds <= 30 ? 'text-danger' : seconds <= 60 ? 'text-warning' : 'text-success';
+                return '<span class="countdown-cell ' + color + '">'
+                     + (m > 0 ? m + 'm ' : '') + String(s).padStart(2, '0') + 's'
+                     + '</span>';
+            }
+
+            function tickCountdowns() {
+                $('#active-locks-body tr[data-expires]').each(function () {
+                    var expiry = new Date($(this).data('expires'));
+                    var remaining = Math.ceil((expiry - Date.now()) / 1000);
+                    if (remaining <= 0) {
+                        $(this).fadeOut(400, function () { $(this).remove(); refreshLockCount(); });
+                    } else {
+                        $(this).find('.countdown-col').html(formatCountdown(remaining));
+                        if (remaining <= 10) $(this).addClass('lock-row-expiring');
+                    }
+                });
+            }
+
+            function refreshLockCount() {
+                var count = $('#active-locks-body tr[data-expires]').length;
+                $('#locks-count-badge').text(count);
+                $('#stat-active-locks').text(count);
+                if (count === 0) {
+                    if ($('#no-locks-row').length === 0) {
+                        $('#active-locks-body').html('<tr id="no-locks-row"><td colspan="6" class="text-center text-muted py-3">No active locks</td></tr>');
+                    }
+                } else {
+                    $('#no-locks-row').remove();
+                }
+            }
+
+            function loadActiveLocks() {
+                $.ajax({
+                    url: '{{ route("dialing.active-locks") }}',
+                    method: 'GET',
+                    success: function (res) {
+                        $('#locks-last-refresh').text('Updated ' + new Date().toLocaleTimeString());
+                        $('#stat-active-locks').text(res.stats.active_count);
+                        $('#stat-calls-today').text(res.stats.calls_today);
+                        $('#locks-count-badge').text(res.stats.active_count);
+
+                        var $body = $('#active-locks-body');
+                        if (!res.locks || res.locks.length === 0) {
+                            $body.html('<tr id="no-locks-row"><td colspan="6" class="text-center text-muted py-3">No active locks</td></tr>');
+                            return;
+                        }
+
+                        // Keep existing rows (update countdown in-place) or rebuild
+                        var existingIds = {};
+                        $body.find('tr[data-id]').each(function () {
+                            existingIds[$(this).data('id')] = $(this);
+                        });
+
+                        var seenIds = {};
+                        $.each(res.locks, function (i, lock) {
+                            seenIds[lock.id] = true;
+                            var countdown = formatCountdown(lock.remaining_seconds);
+                            if (existingIds[lock.id]) {
+                                existingIds[lock.id].find('.countdown-col').html(countdown);
+                                existingIds[lock.id].attr('data-expires', lock.expires_at_iso);
+                            } else {
+                                var row = '<tr data-id="' + lock.id + '" data-expires="' + lock.expires_at_iso + '">'
+                                        + '<td><strong>' + $('<div>').text(lock.full_number).html() + '</strong></td>'
+                                        + '<td>' + $('<div>').text(lock.user_name).html() + '</td>'
+                                        + '<td><code>' + $('<div>').text(lock.locked_at).html() + '</code></td>'
+                                        + '<td class="countdown-col">' + countdown + '</td>'
+                                        + '<td><span class="badge bg-info">' + lock.call_count + '</span></td>'
+                                        + '<td class="text-end">'
+                                        + '<button type="button" class="btn btn-sm btn-outline-danger release-lock-btn" data-lock-id="' + lock.id + '" data-number="' + $('<div>').text(lock.full_number).html() + '">Release</button>'
+                                        + '</td></tr>';
+                                $body.append(row);
+                            }
+                        });
+
+                        // Remove rows for expired/released locks
+                        $body.find('tr[data-id]').each(function () {
+                            if (!seenIds[$(this).data('id')]) $(this).remove();
+                        });
+
+                        $('#no-locks-row').remove();
+                    }
+                });
+            }
+
+            // Release a single lock
+            $(document).on('click', '.release-lock-btn', function () {
+                var lockId = $(this).data('lock-id');
+                var num    = $(this).data('number');
+                var $btn   = $(this);
+                $btn.prop('disabled', true).text('Releasing…');
+                $.ajax({
+                    url: '{{ route("dialing.clear-lock") }}',
+                    method: 'POST',
+                    data: { id: lockId, _token: $('meta[name="csrf-token"]').attr('content') },
+                    success: function () {
+                        $btn.closest('tr').fadeOut(300, function () { $(this).remove(); refreshLockCount(); });
+                        toastr.success('Lock released for ' + num);
+                    },
+                    error: function () { $btn.prop('disabled', false).text('Release'); toastr.error('Failed to release lock.'); }
+                });
+            });
+
+            // Clear all locks
+            $('#clearAllLocksBtn').on('click', function () {
+                var count = parseInt($('#locks-count-badge').text(), 10) || 0;
+                if (count === 0) { toastr.info('No active locks to clear.'); return; }
+                Swal.fire({
+                    title: 'Clear all active locks?',
+                    text: count + ' lock' + (count === 1 ? '' : 's') + ' will be released immediately.',
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#dc3545',
+                    confirmButtonText: 'Yes, clear all'
+                }).then(function (r) {
+                    if (!r.isConfirmed) return;
+                    $.ajax({
+                        url: '{{ route("dialing.clear-all-locks") }}',
+                        method: 'POST',
+                        data: { _token: $('meta[name="csrf-token"]').attr('content') },
+                        success: function (res) {
+                            toastr.success('Cleared ' + res.cleared + ' lock' + (res.cleared === 1 ? '' : 's') + '.');
+                            loadActiveLocks();
+                        },
+                        error: function () { toastr.error('Failed to clear locks.'); }
+                    });
+                });
+            });
+
+            // Start the live countdown ticker
+            dialCountdownTimer = setInterval(tickCountdowns, 1000);
+
+            // Auto-refresh the table every 5 s when the dialing section is visible
+            function startLocksRefresh()  {
+                loadActiveLocks();
+                dialLocksRefreshTimer = setInterval(loadActiveLocks, 5000);
+            }
+            function stopLocksRefresh() {
+                clearInterval(dialLocksRefreshTimer);
+                dialLocksRefreshTimer = null;
+            }
+
+            // Only poll when the Dial Lock section is active
+            $menuButtons.on('click', function () {
+                if ($(this).data('target') === '#form-dialing') {
+                    startLocksRefresh();
+                } else {
+                    stopLocksRefresh();
+                }
+            });
+
+            // ── Save dialing settings form ──────────────────────────────────────
+            $('#dialingSettingsForm').on('submit', function (e) {
+                e.preventDefault();
+                var $btn = $(this).find('[type="submit"]');
+                var orig = $btn.html();
+                $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Saving…');
+
+                var enabled = $('#dialing_lock_enabled').is(':checked') ? 1 : 0;
+                $.ajax({
+                    url: '{{ route("settings.dialing.save") }}',
+                    method: 'POST',
+                    data: {
+                        _token: $('meta[name="csrf-token"]').attr('content'),
+                        dialing_lock_enabled:           enabled,
+                        dialing_lock_same_user_minutes:  $('#dialing_lock_same_user_minutes').val(),
+                        dialing_lock_other_user_minutes: $('#dialing_lock_other_user_minutes').val(),
+                    },
+                    success: function (res) {
+                        if (res.success) toastr.success(res.message);
+                        else toastr.error(res.message);
+                    },
+                    error: function (xhr) {
+                        toastr.error('Failed to save: ' + (xhr.responseJSON?.error || 'Unknown error'));
+                    },
+                    complete: function () { $btn.prop('disabled', false).html(orig); }
+                });
             });
 
         });
