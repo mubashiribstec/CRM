@@ -285,7 +285,7 @@
                     { data: 'job_title', name: 'job_titles.name' },
                     { data: 'job_category', name: 'job_categories.name' },
                     { data: 'applicant_postcode', name: 'applicants.applicant_postcode' },
-                    { data: 'applicant_phone', name: 'applicants.applicant_phone' },
+                    { data: 'applicantPhone', name: 'applicants.applicant_phone' },
                     { data: 'applicant_resume', name:'applicants.applicant_cv', orderable: false, searchable: false },
                     { data: 'crm_resume', name:'applicants.updated_cv', orderable: false, searchable: false },
                     { data: 'office_name', name: 'offices.office_name' },
