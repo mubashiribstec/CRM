@@ -1399,6 +1399,8 @@ class SettingController extends Controller
                 'dialing_lock_enabled'           => 'required|in:0,1',
                 'dialing_lock_same_user_minutes'  => 'required|integer|min:0|max:60',
                 'dialing_lock_other_user_minutes' => 'required|integer|min:1|max:60',
+                'dialing_max_calls_per_day'       => 'required|integer|min:0|max:20',
+                'dialing_history_days'            => 'required|integer|min:1|max:14',
             ]);
 
             Setting::updateOrCreate(
@@ -1412,6 +1414,14 @@ class SettingController extends Controller
             Setting::updateOrCreate(
                 ['key' => 'dialing_lock_other_user_minutes'],
                 ['value' => (int) $request->dialing_lock_other_user_minutes, 'type' => 'integer', 'group' => 'dialing']
+            );
+            Setting::updateOrCreate(
+                ['key' => 'dialing_max_calls_per_day'],
+                ['value' => (int) $request->dialing_max_calls_per_day, 'type' => 'integer', 'group' => 'dialing']
+            );
+            Setting::updateOrCreate(
+                ['key' => 'dialing_history_days'],
+                ['value' => (int) $request->dialing_history_days, 'type' => 'integer', 'group' => 'dialing']
             );
 
             return response()->json([

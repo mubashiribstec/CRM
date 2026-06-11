@@ -263,6 +263,67 @@
                                             </div>
                                         </div>
                                     </div>
+
+                                    {{-- Daily call limit + history retention --}}
+                                    <div class="col-12">
+                                        <div class="card dial-timer-card border-info h-100">
+                                            <div class="card-header bg-info bg-opacity-10 d-flex align-items-center gap-2">
+                                                <span style="font-size:1.2rem">📊</span>
+                                                <div>
+                                                    <div class="fw-bold">Daily Call Limit & History</div>
+                                                    <small class="text-muted">How many times one agent may call the same number per day, and how long that history is kept</small>
+                                                </div>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="row g-4">
+                                                    <div class="col-md-6">
+                                                        <label class="form-label fw-semibold">Max calls per agent / day</label>
+                                                        <div class="d-flex align-items-center gap-3 mb-3">
+                                                            <input type="range" class="form-range flex-grow-1"
+                                                                   id="max_calls_slider" min="0" max="20" step="1" value="3">
+                                                            <div class="input-group" style="width:110px">
+                                                                <input type="number" class="form-control text-center fw-bold"
+                                                                       id="dialing_max_calls_per_day"
+                                                                       name="dialing_max_calls_per_day"
+                                                                       min="0" max="20" value="3">
+                                                                <span class="input-group-text">/day</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="text-center">
+                                                            <span id="max-calls-preview" class="badge dial-preview-badge bg-info px-3 py-2">
+                                                                Limit: 3 calls per agent/day
+                                                            </span>
+                                                        </div>
+                                                        <div class="mt-2 text-center">
+                                                            <small class="text-muted">Set to <strong>0</strong> for unlimited calls per day.</small>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <label class="form-label fw-semibold">Call history retention</label>
+                                                        <div class="d-flex align-items-center gap-3 mb-3">
+                                                            <input type="range" class="form-range flex-grow-1"
+                                                                   id="history_days_slider" min="1" max="14" step="1" value="2">
+                                                            <div class="input-group" style="width:110px">
+                                                                <input type="number" class="form-control text-center fw-bold"
+                                                                       id="dialing_history_days"
+                                                                       name="dialing_history_days"
+                                                                       min="1" max="14" value="2">
+                                                                <span class="input-group-text">days</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="text-center">
+                                                            <span id="history-days-preview" class="badge dial-preview-badge bg-secondary px-3 py-2">
+                                                                Keep 2 days of call history
+                                                            </span>
+                                                        </div>
+                                                        <div class="mt-2 text-center">
+                                                            <small class="text-muted">Per-agent daily call counts older than this are purged automatically.</small>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -914,6 +975,41 @@
             bindDialSlider('same_user_slider',  'dialing_lock_same_user_minutes',  'same-user-preview',  true);
             bindDialSlider('other_user_slider', 'dialing_lock_other_user_minutes', 'other-user-preview', false);
 
+            // Generic slider ↔ number input binder with a custom preview formatter
+            function bindSimpleSlider(sliderId, inputId, previewId, formatFn) {
+                var $slider  = $('#' + sliderId);
+                var $input   = $('#' + inputId);
+                var $preview = $('#' + previewId);
+
+                function update(val) {
+                    $preview.text(formatFn(parseInt(val, 10)));
+                }
+
+                $slider.on('input', function () {
+                    var v = $(this).val();
+                    $input.val(v);
+                    update(v);
+                });
+
+                $input.on('input change', function () {
+                    var min = parseInt($(this).attr('min'), 10);
+                    var max = parseInt($(this).attr('max'), 10);
+                    var v   = Math.min(max, Math.max(min, parseInt($(this).val(), 10) || min));
+                    $(this).val(v);
+                    $slider.val(v);
+                    update(v);
+                });
+
+                update($input.val());
+            }
+
+            bindSimpleSlider('max_calls_slider', 'dialing_max_calls_per_day', 'max-calls-preview', function (v) {
+                return v === 0 ? 'Unlimited calls per day' : 'Limit: ' + v + ' call' + (v === 1 ? '' : 's') + ' per agent/day';
+            });
+            bindSimpleSlider('history_days_slider', 'dialing_history_days', 'history-days-preview', function (v) {
+                return 'Keep ' + v + ' day' + (v === 1 ? '' : 's') + ' of call history';
+            });
+
             // Master toggle badge
             $('#dialing_lock_enabled').on('change', function () {
                 var on = $(this).is(':checked');
@@ -928,15 +1024,21 @@
             // (called after the main AJAX succeeds — we hook in via a custom event)
             $(document).on('dialingSettingsLoaded', function (e, data) {
                 if (!data) return;
-                var enabled  = data.dialing_lock_enabled !== false && data.dialing_lock_enabled !== 'false' && data.dialing_lock_enabled !== 0;
-                var sameMin  = parseInt(data.dialing_lock_same_user_minutes,  10) || 0;
-                var otherMin = parseInt(data.dialing_lock_other_user_minutes, 10) || 5;
+                var enabled   = data.dialing_lock_enabled !== false && data.dialing_lock_enabled !== 'false' && data.dialing_lock_enabled !== 0;
+                var sameMin   = parseInt(data.dialing_lock_same_user_minutes,  10) || 0;
+                var otherMin  = parseInt(data.dialing_lock_other_user_minutes, 10) || 5;
+                var maxCalls  = data.dialing_max_calls_per_day !== undefined ? (parseInt(data.dialing_max_calls_per_day, 10) || 0) : 3;
+                var histDays  = parseInt(data.dialing_history_days, 10) || 2;
 
                 $('#dialing_lock_enabled').prop('checked', enabled).trigger('change');
                 $('#dialing_lock_same_user_minutes').val(sameMin).trigger('change');
                 $('#same_user_slider').val(sameMin);
                 $('#dialing_lock_other_user_minutes').val(otherMin).trigger('change');
                 $('#other_user_slider').val(otherMin);
+                $('#dialing_max_calls_per_day').val(maxCalls).trigger('change');
+                $('#max_calls_slider').val(maxCalls);
+                $('#dialing_history_days').val(histDays).trigger('change');
+                $('#history_days_slider').val(histDays);
                 $('#same-user-preview').trigger('updatePreview');
             });
 
@@ -1113,6 +1215,8 @@
                         dialing_lock_enabled:           enabled,
                         dialing_lock_same_user_minutes:  $('#dialing_lock_same_user_minutes').val(),
                         dialing_lock_other_user_minutes: $('#dialing_lock_other_user_minutes').val(),
+                        dialing_max_calls_per_day:       $('#dialing_max_calls_per_day').val(),
+                        dialing_history_days:            $('#dialing_history_days').val(),
                     },
                     success: function (res) {
                         if (res.success) toastr.success(res.message);
