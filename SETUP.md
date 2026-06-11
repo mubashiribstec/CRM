@@ -149,8 +149,10 @@ These have sensible defaults in `config/services.php` but should be set explicit
 # Point MicroSIP's crmApiUrl at:  https://your-crm/api/sip/<MICROSIP_API_TOKEN>
 MICROSIP_API_TOKEN=generate-a-long-random-string
 
-# Click-to-dial collision lock duration (minutes). A number stays locked to the
-# dialing agent until this expires or the call is logged.
+# Click-to-dial collision lock duration (minutes). NOTE: superseded — dial
+# lock timers are now configured dynamically at Settings > Dial Lock Settings
+# (separate "same agent" / "other agents" timers). This env var has no effect
+# on dial locking. See docs/DIAL_LOCK.md for details.
 DIAL_LOCK_MINUTES=5
 
 # IP allow-list enforcement. Leave true during initial setup so you can log in,
@@ -168,6 +170,9 @@ TRUSTED_PROXIES=*
 ---
 
 ## xplosip softphone integration
+
+> Click-to-dial collision locking (call counts, last-call time, per-user
+> timers) is documented separately in [`docs/DIAL_LOCK.md`](docs/DIAL_LOCK.md).
 
 The CRM exposes API endpoints the desktop MicroSIP client calls:
 
