@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\DialLink;
 use Illuminate\Http\Request;
 use Horsefly\Sale;
 use Horsefly\Unit;
@@ -436,6 +437,8 @@ class QualityController extends Controller
         }
 
         if ($request->ajax()) {
+            $revealPhone = (bool) auth()->user()?->can('applicant-view-phone-number');
+
             return DataTables::eloquent($model)
                 ->addIndexColumn() // This will automatically add a serial number to the rows
                 ->addColumn("user_name", function ($applicant) {
@@ -538,23 +541,23 @@ class QualityController extends Controller
                         </div>';
                     })
 
-                ->addColumn('applicantPhone', function ($applicant) {
-                    $str = '';
-
+                ->addColumn('applicantPhone', function ($applicant) use ($revealPhone) {
                     if ($applicant->is_blocked) {
-                        $str = "<span class='badge bg-dark'>Blocked</span>";
-                    } else {
-                        $str = '<strong>P:</strong> ' . $applicant->applicant_phone;
-
-                        if ($applicant->applicant_phone_secondary) {
-                            $str .= '<br><strong>P:</strong> ' . $applicant->applicant_phone_secondary;
-                        }
-                        if ($applicant->applicant_landline) {
-                            $str .= '<br><strong>L:</strong> ' . $applicant->applicant_landline;
-                        }
+                        return "<span class='badge bg-dark'>Blocked</span>";
                     }
 
-                    return $str;
+                    $parts = [];
+                    if (!empty(trim($applicant->applicant_phone))) {
+                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone', $revealPhone);
+                    }
+                    if (!empty(trim($applicant->applicant_phone_secondary))) {
+                        $parts[] = DialLink::render($applicant->applicant_phone_secondary, 'Secondary Phone', $revealPhone);
+                    }
+                    if (!empty(trim($applicant->applicant_landline))) {
+                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline', $revealPhone);
+                    }
+
+                    return implode('<br>', $parts) ?: '-';
                 })
                 ->filterColumn('applicantPhone', function ($query, $keyword) {
                     $clean = preg_replace('/[^0-9]/', '', $keyword); // remove spaces, dashes, etc.

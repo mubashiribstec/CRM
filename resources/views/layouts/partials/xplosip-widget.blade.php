@@ -8,13 +8,12 @@
     No React / WebRTC / SIP credentials are used in the CRM — dialing happens
     entirely in the desktop xplosip app (registered to voip.ibstec.com:4060).
 
-    Click-to-dial helper for any Blade view that renders a phone number:
-
-        <a href="javascript:void(0)"
-           onclick="xplosipDial('{{ $applicant->applicant_phone }}')"
-           class="text-primary text-decoration-none" title="Click to dial">
-            {{ $applicant->applicant_phone }}
-        </a>
+    The real phone number is never rendered into the page: phone columns use
+    App\Support\DialLink::render() to emit an encrypted `data-xpdial` token
+    plus a masked `data-xplabel`. xplosipDial(el) reads those from the
+    clicked element and only ever sees the real digits in the JSON response
+    of a successful /dialing/acquire call (just long enough to build the
+    tel: link).
 --}}
 <script>
 (function () {
@@ -76,18 +75,18 @@
     function onKey(e) { if (e.key === 'Escape') closeConfirm(); }
 
     // ── Launch the desktop xplosip softphone ─────────────────────────────────
-    function launchDesktop(num, count) {
+    function launchDesktop(num, count, label) {
         var clean  = String(num).replace(/[^0-9+*#]/g, '');
         var suffix = count ? ' (call #' + count + ' for this number)' : '';
-        xplosipToast('Opening xplosip for ' + num + ' …' + suffix);
+        xplosipToast('Opening xplosip for ' + (label || 'this number') + ' …' + suffix);
         try { window.location.href = 'tel:' + clean; }
         catch (e) { window.open('tel:' + clean, '_self'); }
     }
 
     // ── Fetch lock/count info for a number ───────────────────────────────────
-    function fetchInfo(num, cb) {
+    function fetchInfo(token, cb) {
         try {
-            fetch(XP_INFO_URL + '?number=' + encodeURIComponent(num), {
+            fetch(XP_INFO_URL + '?token=' + encodeURIComponent(token), {
                 credentials: 'same-origin',
                 headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
             }).then(function (r) { return r.json(); }).then(cb).catch(function () { cb(null); });
@@ -95,7 +94,7 @@
     }
 
     // ── Acquire a server-side dial lock ──────────────────────────────────────
-    function acquireLock(num, cb) {
+    function acquireLock(token, cb) {
         try {
             fetch(XP_ACQUIRE_URL, {
                 method: 'POST',
@@ -106,7 +105,7 @@
                     'X-Requested-With': 'XMLHttpRequest',
                     'Accept': 'application/json'
                 },
-                body: JSON.stringify({ number: num })
+                body: JSON.stringify({ token: token })
             }).then(function (r) {
                 return r.json().then(function (j) { return { status: r.status, body: j }; })
                               .catch(function () { return { status: r.status, body: {} }; });
@@ -117,6 +116,7 @@
                         callCount:      res.body.callCount,
                         dailyCallCount: res.body.dailyCallCount,
                         dailyCallLimit: res.body.dailyCallLimit,
+                        dialNumber:     res.body.dialNumber,
                     });
                 } else {
                     cb({
@@ -212,9 +212,18 @@
     }
 
     // ── PUBLIC: called by phone-number links throughout the CRM ──────────────
-    window.xplosipDial = function (number) {
-        if (!number) return;
-        var num = String(number).trim();
+    // Accepts the clicked <a> element (reads data-xpdial / data-xplabel) or,
+    // for backwards compatibility, a raw number string.
+    window.xplosipDial = function (elOrNumber) {
+        var token, label;
+        if (elOrNumber && elOrNumber.nodeType === 1) {
+            token = elOrNumber.getAttribute('data-xpdial');
+            label = elOrNumber.getAttribute('data-xplabel') || 'this number';
+        } else {
+            token = null;
+            label = String(elOrNumber || '').trim();
+        }
+        if (!token && !label) return;
         closeConfirm();
 
         var overlay = document.createElement('div');
@@ -230,14 +239,22 @@
                 '<button type="button" class="xpc-call"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 10.8 19.79 19.79 0 01.01 2.18 2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92v2z"/></svg>Call</button>' +
               '</div>' +
             '</div>';
-        overlay.querySelector('.xpc-num').textContent = num;
+        overlay.querySelector('.xpc-num').textContent = label;
         document.body.appendChild(overlay);
 
         var meta    = overlay.querySelector('.xpc-meta');
         var callBtn = overlay.querySelector('.xpc-call');
 
+        if (!token) {
+            meta.className = 'xpc-meta warn';
+            meta.textContent = 'No dial token for this number — cannot place call.';
+            callBtn.disabled = true;
+            callBtn.style.opacity = '0.5';
+            callBtn.style.cursor  = 'not-allowed';
+        }
+
         // Pre-load lock status for this number
-        fetchInfo(num, function (info) {
+        if (token) fetchInfo(token, function (info) {
             if (!info) { meta.textContent = ''; return; }
             if (info.locked) {
                 var isSelf = info.lockedBySelf;
@@ -289,14 +306,14 @@
         overlay.querySelector('.xpc-cancel').addEventListener('click', closeConfirm);
 
         callBtn.addEventListener('click', function () {
-            if (callBtn.disabled) return;
+            if (callBtn.disabled || !token) return;
             callBtn.disabled = true;
             callBtn.style.opacity = '0.7';
             callBtn.innerHTML = 'Checking…';
-            acquireLock(num, function (res) {
-                if (res && res.ok) {
+            acquireLock(token, function (res) {
+                if (res && res.ok && res.dialNumber) {
                     closeConfirm();
-                    launchDesktop(num, res.callCount);
+                    launchDesktop(res.dialNumber, res.callCount, label);
                 } else {
                     showLocked(overlay, res || {
                         lockedBySelf: false,

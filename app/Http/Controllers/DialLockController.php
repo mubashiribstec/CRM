@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\DialLink;
+use App\Support\PhoneNumber;
 use Horsefly\Applicant;
 use Horsefly\DialCallLog;
 use Horsefly\DialLock;
@@ -44,6 +46,26 @@ class DialLockController extends Controller
         ];
     }
 
+    /**
+     * Resolve the real phone number from the request: prefers an encrypted
+     * `token` (the only thing the widget now sends), falls back to a plain
+     * `number` param for backwards compatibility with any other caller.
+     */
+    private function resolveDialNumber(Request $request): ?string
+    {
+        if ($request->filled('token')) {
+            return DialLink::resolve($request->input('token'));
+        }
+
+        $number = trim((string) $request->input('number', ''));
+        return $number !== '' ? $number : null;
+    }
+
+    private function canViewPhoneNumber(): bool
+    {
+        return (bool) Auth::user()?->can('applicant-view-phone-number');
+    }
+
     /** Per-agent daily call count / limit info for a phone_key, for the calling agent. */
     private function dailyCallInfo(?string $key, array $cfg): array
     {
@@ -67,11 +89,16 @@ class DialLockController extends Controller
         ];
     }
 
-    /** GET /dialing/info?number=... — status for a number, personalised to the calling agent. */
+    /** GET /dialing/info?token=... (or ?number=... ) — status for a number, personalised to the calling agent. */
     public function info(Request $request): JsonResponse
     {
-        $request->validate(['number' => ['required', 'string', 'max:30']]);
-        $key = DialLock::keyFor($request->input('number'));
+        $request->validate([
+            'token'  => ['nullable', 'string'],
+            'number' => ['nullable', 'string', 'max:30'],
+        ]);
+
+        $number = $this->resolveDialNumber($request);
+        $key = DialLock::keyFor($number);
         $cfg = $this->dialingSettings();
         $daily = $this->dailyCallInfo($key, $cfg);
 
@@ -119,12 +146,15 @@ class DialLockController extends Controller
     /** POST /dialing/acquire — try to start a call; lock or allow depending on per-user timers. */
     public function acquire(Request $request): JsonResponse
     {
-        $request->validate(['number' => ['required', 'string', 'max:30']]);
+        $request->validate([
+            'token'  => ['nullable', 'string'],
+            'number' => ['nullable', 'string', 'max:30'],
+        ]);
 
-        $number = trim($request->input('number'));
+        $number = $this->resolveDialNumber($request);
         $key    = DialLock::keyFor($number);
 
-        if (!$key) {
+        if (!$key || !$number) {
             return response()->json(['ok' => true, 'locked' => false, 'callCount' => 0]);
         }
 
@@ -249,6 +279,7 @@ class DialLockController extends Controller
                 'callCount'      => $newCount,
                 'dailyCallCount' => $log->calls,
                 'dailyCallLimit' => $cfg['max_calls_per_day'],
+                'dialNumber'     => $number,
             ]);
         });
 
@@ -267,9 +298,12 @@ class DialLockController extends Controller
     /** POST /dialing/release — free a lock the calling agent holds. */
     public function release(Request $request): JsonResponse
     {
-        $request->validate(['number' => ['required', 'string', 'max:30']]);
+        $request->validate([
+            'token'  => ['nullable', 'string'],
+            'number' => ['nullable', 'string', 'max:30'],
+        ]);
 
-        $key = DialLock::keyFor($request->input('number'));
+        $key = DialLock::keyFor($this->resolveDialNumber($request));
         if ($key) {
             DialLock::where('phone_key', $key)
                 ->where('user_id', Auth::id())
@@ -282,12 +316,14 @@ class DialLockController extends Controller
     /** GET /dialing/active-locks — all currently active locks for the admin settings panel. */
     public function activeList(): JsonResponse
     {
+        $reveal = $this->canViewPhoneNumber();
+
         $locks = DialLock::where('expires_at', '>', now())
             ->orderBy('expires_at', 'asc')
             ->get()
             ->map(fn ($r) => [
                 'id'               => $r->id,
-                'full_number'      => $r->full_number,
+                'full_number'      => $reveal ? $r->full_number : PhoneNumber::mask($r->full_number),
                 'user_name'        => $r->user_name ?: 'Unknown',
                 'locked_at'        => $r->locked_at?->format('H:i:s'),
                 'expires_at_iso'   => $r->expires_at?->toIso8601String(),
@@ -325,6 +361,8 @@ class DialLockController extends Controller
     /** GET /dialing/call-history — DataTables-backed per-agent call history report. */
     public function callHistory(Request $request): JsonResponse
     {
+        $reveal = $this->canViewPhoneNumber();
+
         $query = DialCallLog::query()
             ->with('user')
             ->leftJoin('dial_locks', 'dial_locks.phone_key', '=', 'dial_call_logs.phone_key')
@@ -344,7 +382,10 @@ class DialLockController extends Controller
         return DataTables::eloquent($query)
             ->addIndexColumn()
             ->addColumn('agent_name', fn ($row) => $row->user?->name ?: 'Unknown')
-            ->addColumn('full_number', fn ($row) => $row->full_number ?: $row->phone_key)
+            ->addColumn('full_number', function ($row) use ($reveal) {
+                $number = $row->full_number ?: $row->phone_key;
+                return $reveal ? $number : PhoneNumber::mask($number);
+            })
             ->editColumn('call_date', fn ($row) => $row->call_date->format('d M Y'))
             ->rawColumns(['agent_name', 'full_number'])
             ->make(true);

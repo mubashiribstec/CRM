@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\DialLink;
 use Illuminate\Http\Request;
 use Horsefly\Unit;
 use Horsefly\Office;
@@ -3261,6 +3262,8 @@ class SaleController extends Controller
         }
 
         if ($request->ajax()) {
+            $revealPhone = (bool) auth()->user()?->can('applicant-view-phone-number');
+
             return DataTables::eloquent($model)
                 ->addIndexColumn() // This will automatically add a serial number to the rows
                 ->addColumn('checkbox', function ($applicant) {
@@ -3338,29 +3341,20 @@ class SaleController extends Controller
                         </a>
                     ';
                 })
-                ->addColumn('applicantPhone', function ($applicant) {
+                ->addColumn('applicantPhone', function ($applicant) use ($revealPhone) {
                     if ($applicant->is_blocked) {
                         return "<span class='badge bg-dark'>Blocked</span>";
                     }
 
-                    $dialLink = function (string $num, string $prefix): string {
-                        $safe = e($num);
-                        return "<strong>{$prefix}:</strong> "
-                            . "<a href=\"javascript:void(0)\" "
-                            . "onclick=\"if(window.xplosipDial){xplosipDial('{$safe}');}\" "
-                            . "class=\"text-primary text-decoration-none\" "
-                            . "title=\"Click to dial {$safe}\">{$safe}</a>";
-                    };
-
                     $parts = [];
                     if (!empty(trim($applicant->applicant_phone))) {
-                        $parts[] = $dialLink($applicant->applicant_phone, 'P');
+                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone', $revealPhone);
                     }
                     if (!empty(trim($applicant->applicant_phone_secondary))) {
-                        $parts[] = $dialLink($applicant->applicant_phone_secondary, 'S');
+                        $parts[] = DialLink::render($applicant->applicant_phone_secondary, 'Secondary Phone', $revealPhone);
                     }
                     if (!empty(trim($applicant->applicant_landline))) {
-                        $parts[] = $dialLink($applicant->applicant_landline, 'L');
+                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline', $revealPhone);
                     }
 
                     return implode('<br>', $parts) ?: '-';

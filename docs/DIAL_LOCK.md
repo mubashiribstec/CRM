@@ -348,6 +348,67 @@ DataTable with date‑range and agent filter inputs that re‑trigger
 
 ---
 
+## 10. Phone number masking — click‑to‑dial only, no copy‑paste
+
+Applicant phone numbers are no longer rendered as plain text anywhere in the
+list/table views (Applicants, CRM, Sales, Quality, Resource, Region). The
+goal: an agent can dial a number with one click, but cannot select/copy the
+digits out of a table cell, the confirm dialog, the toast, or the page
+source.
+
+**How it works**
+
+- `App\Support\PhoneNumber::mask()` renders a masked tail — last 3 digits
+  visible, the rest replaced with bullets (e.g. `••••••789`).
+- `App\Support\DialLink::render($number, $label, $reveal)` builds the `<a>`
+  markup for every phone column. It never puts the real number in the HTML:
+  - The visible link text is the masked tail (or the real number if
+    `$reveal` is true — see permission below).
+  - An **encrypted token** (`Crypt::encryptString($number)`) is placed in a
+    `data-xpdial` attribute. A fresh random IV means the token is different
+    on every page render, so it can't be cached or correlated across loads.
+  - A masked label (e.g. `Primary Phone •••••789`) goes in `data-xplabel`,
+    used for the confirm dialog/toast text — never the real digits.
+- The widget (`xplosip-widget.blade.php`) reads `data-xpdial` /
+  `data-xplabel` off the clicked element. `fetchInfo()` and `acquireLock()`
+  send the **token**, not a number, to `DialLockController`.
+- `DialLockController::resolveDialNumber()` decrypts the token
+  server‑side (`App\Support\DialLink::resolve()`, falling back to a plain
+  `number` param for any other caller). The real number is returned to the
+  browser **only** in the `acquire()` success response, as `dialNumber` —
+  the one moment it's actually needed to build the `tel:` link. `info()`
+  never returns it.
+- `activeList()` and `callHistory()` (the admin‑only Settings reports) mask
+  `full_number` the same way, unless the viewing user has the permission
+  below.
+
+**Permission** — `applicant-view-phone-number` (Spatie). Users with this
+permission see real digits in every phone column; everyone else sees the
+masked tail only. Computed once per DataTables request
+(`auth()->user()?->can('applicant-view-phone-number')`) and passed into the
+column closures, not re‑checked per row.
+
+**Known limitation (by design, not a bug):** the desktop softphone is
+launched from the browser via a `tel:` URL, so the real number must reach
+the browser at the instant of dialing. A determined agent with browser
+DevTools open can still read the digits from the `acquire` network response
+when they place a call. This can't be eliminated while the softphone is
+launched client‑side. What this change does guarantee: no digits appear in
+any table cell, dialog, toast, or page source — so casual select/copy‑paste
+and view‑source harvesting are gone — and the only path that ever reveals a
+number (`acquire`) already creates a lock and a `dial_call_logs` row, so any
+such harvesting is rate‑capped and visible in the Call History report
+above.
+
+**Known gap (not yet fixed):** `CrmController`'s per‑row "Actions" dropdown
+(Send SMS / Add CRM Notes / Send Request buttons — a separate column from
+the masked Phone column) still embeds the raw number in `data-phone` /
+`data-applicant-phone` HTML attributes. Those buttons would need their JS
+reworked to fetch the number server‑side by applicant id instead of trusting
+a client‑side attribute. Left out of this pass; tracked as a follow‑up.
+
+---
+
 ## Note on the old `DIAL_LOCK_MINUTES` env var
 
 `config/services.php` still defines `services.dialing.lock_minutes` from

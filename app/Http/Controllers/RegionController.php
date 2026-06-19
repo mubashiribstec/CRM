@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Support\DialLink;
 use Horsefly\Sale;
 use Horsefly\Office;
 use Horsefly\Unit;
@@ -156,6 +157,7 @@ class RegionController extends Controller
         }
 
         if ($request->ajax()) {
+            $revealPhone = (bool) auth()->user()?->can('applicant-view-phone-number');
             return DataTables::eloquent($model)
                 ->addIndexColumn() // This will automatically add a serial number to the rows
                 ->addColumn('job_title', function ($applicant) {
@@ -239,19 +241,20 @@ class RegionController extends Controller
                         </a>
                     ';
                 })
-                ->addColumn('applicant_phone', function ($applicant) {
-                    $strng = '';
-                    if($applicant->applicant_landline){
-                        $phone = '<strong>P:</strong> '.$applicant->applicant_phone;
-                        $landline = '<strong>L:</strong> '.$applicant->applicant_landline;
-
-                        $strng = $applicant->is_blocked ? "<span class='badge bg-dark'>Blocked</span>" : $phone .'<br>'. $landline;
-                    }else{
-                        $phone = '<strong>P:</strong> '.$applicant->applicant_phone;
-                        $strng = $applicant->is_blocked ? "<span class='badge bg-dark'>Blocked</span>" : $phone;
+                ->addColumn('applicant_phone', function ($applicant) use ($revealPhone) {
+                    if ($applicant->is_blocked) {
+                        return "<span class='badge bg-dark'>Blocked</span>";
                     }
 
-                    return $strng;
+                    $parts = [];
+                    if (!empty(trim($applicant->applicant_phone))) {
+                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone', $revealPhone);
+                    }
+                    if (!empty(trim($applicant->applicant_landline))) {
+                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline', $revealPhone);
+                    }
+
+                    return implode('<br>', $parts) ?: '-';
                 })
                 ->addColumn('applicant_email', function ($applicant) {
                     $email = '';
