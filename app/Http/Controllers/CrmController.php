@@ -25,6 +25,7 @@ use Horsefly\RevertStage;
 
 use App\Observers\ActionObserver;
 use App\Http\Controllers\Controller;
+use App\Services\ApplicantWorkflowService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
@@ -47,6 +48,10 @@ use Illuminate\Support\Facades\Gate;
 class CrmController extends Controller
 {
     use SendEmails, SendSMS;
+
+    public function __construct(private ApplicantWorkflowService $workflow)
+    {
+    }
 
     public function index()
     {
@@ -8706,54 +8711,45 @@ class CrmController extends Controller
     private function crmSentRequestAction($applicant_id, $user_id, $sale_id, $details)
     {
         try {
-            Applicant::where("id", $applicant_id)
-                ->update([
-                    'is_in_crm_request' => true,
-                    'is_interview_confirm' => false
-                ]);
+            $this->workflow->setApplicantFlags($applicant_id, [
+                'is_in_crm_request' => true,
+                'is_interview_confirm' => false,
+            ]);
 
-            CrmNote::where([
+            $this->workflow->deactivate(CrmNote::class, [
                 "applicant_id" => $applicant_id,
                 "sale_id" => $sale_id,
-                "status" => 1
-            ])->update(["status" => 0]);
+                "status" => 1,
+            ]);
 
-            $crm_notes = new CrmNote();
-            $crm_notes->applicant_id = $applicant_id;
-            $crm_notes->user_id = $user_id;
-            $crm_notes->sale_id = $sale_id;
-            $crm_notes->details = $details;
-            $crm_notes->moved_tab_to = "cv_sent_request";
-            $crm_notes->save();
+            $this->workflow->createWithUid(CrmNote::class, [
+                'applicant_id' => $applicant_id,
+                'user_id' => $user_id,
+                'sale_id' => $sale_id,
+                'details' => $details,
+                'moved_tab_to' => "cv_sent_request",
+            ], 'crm_notes_uid');
 
-            //update uid
-            $crm_notes->crm_notes_uid = md5((string) $crm_notes->id);
-            $crm_notes->save();
-
-            QualityNotes::where([
-                "applicant_id" => $applicant_id, 
-                "sale_id" => $sale_id, 
+            $this->workflow->deactivate(QualityNotes::class, [
+                "applicant_id" => $applicant_id,
+                "sale_id" => $sale_id,
                 "moved_tab_to" => "cleared",
-                "status" => 1
-            ])->update(["status" => 0]);
+                "status" => 1,
+            ]);
 
-            History::where([
+            $this->workflow->deactivate(History::class, [
                 "applicant_id" => $applicant_id,
                 "sale_id" => $sale_id,
-                "status" => 1
-            ])->update(["status" => 0]);
+                "status" => 1,
+            ]);
 
-            $history = new History();
-            $history->applicant_id = $applicant_id;
-            $history->user_id = $user_id;
-            $history->sale_id = $sale_id;
-            $history->stage = 'crm';
-            $history->sub_stage = 'crm_request';
-            $history->save();
-
-            //update uid
-            $history->history_uid = md5((string) $history->id);
-            $history->save();
+            $this->workflow->createWithUid(History::class, [
+                'applicant_id' => $applicant_id,
+                'user_id' => $user_id,
+                'sale_id' => $sale_id,
+                'stage' => 'crm',
+                'sub_stage' => 'crm_request',
+            ], 'history_uid');
 
             return true; // Indicate success
 
@@ -8768,63 +8764,52 @@ class CrmController extends Controller
     private function crmRevertCVInQualityAction($applicant_id, $user_id, $sale_id, $details)
     {
         try {
-            Applicant::where("id", $applicant_id)->update([
+            $this->workflow->setApplicantFlags($applicant_id, [
                 'is_interview_confirm' => false,
                 'is_cv_in_quality_clear' => false,
                 'is_cv_in_quality_reject' => true,
-                'is_cv_in_quality' => false
+                'is_cv_in_quality' => false,
             ]);
 
-            CrmNote::where([
+            $this->workflow->deactivate(CrmNote::class, [
                 "applicant_id" => $applicant_id,
                 "sale_id" => $sale_id,
-                "status" => 1
-            ])->update(["status" => 0]);
+                "status" => 1,
+            ]);
 
-            QualityNotes::where([
+            $this->workflow->delete(QualityNotes::class, [
                 'applicant_id' => $applicant_id,
                 'sale_id' => $sale_id,
                 'moved_tab_to' => 'cleared',
-                // 'status' => 1
-            ])
-            ->delete();
-            // ->update(['status' => 0]);
+            ]);
 
-            $quality_notes = new QualityNotes();
-            $quality_notes->applicant_id = $applicant_id;
-            $quality_notes->user_id = $user_id;
-            $quality_notes->sale_id = $sale_id;
-            $quality_notes->details = $details;
-            $quality_notes->moved_tab_to = "rejected";
-            $quality_notes->save();
+            $this->workflow->createWithUid(QualityNotes::class, [
+                'applicant_id' => $applicant_id,
+                'user_id' => $user_id,
+                'sale_id' => $sale_id,
+                'details' => $details,
+                'moved_tab_to' => "rejected",
+            ], 'quality_notes_uid');
 
-            /** Update UID */
-            $quality_notes->quality_notes_uid = md5((string) $quality_notes->id);
-            $quality_notes->save();
-
-            CVNote::where([
+            $this->workflow->deactivate(CVNote::class, [
                 'sale_id' => $sale_id,
                 'applicant_id' => $applicant_id,
-                'status' => 1
-            ])->update(['status' => 0]);
+                'status' => 1,
+            ]);
 
-            History::where([
+            $this->workflow->deactivate(History::class, [
                 "applicant_id" => $applicant_id,
                 "sale_id" => $sale_id,
-                'status' => 1
-            ])->update(["status" => 0]);
+                'status' => 1,
+            ]);
 
-            $history = new History();
-            $history->applicant_id = $applicant_id;
-            $history->user_id = $user_id;
-            $history->sale_id = $sale_id;
-            $history->stage = 'quality';
-            $history->sub_stage = 'quality_reject';
-            $history->save();
-
-            /** Update UID */
-            $history->history_uid = md5((string) $history->id);
-            $history->save();
+            $this->workflow->createWithUid(History::class, [
+                'applicant_id' => $applicant_id,
+                'user_id' => $user_id,
+                'sale_id' => $sale_id,
+                'stage' => 'quality',
+                'sub_stage' => 'quality_reject',
+            ], 'history_uid');
 
             RevertStage::create([
                 'applicant_id' => $applicant_id,
@@ -9482,60 +9467,51 @@ class CrmController extends Controller
     private function crmRequestRejectAction($applicant_id, $user_id, $sale_id, $details)
     {
         try{
-            Applicant::where("id", $applicant_id)
-                ->update([
-                    'is_in_crm_request_reject' => true,
-                    'is_in_crm_request' => false
-                ]);
+            $this->workflow->setApplicantFlags($applicant_id, [
+                'is_in_crm_request_reject' => true,
+                'is_in_crm_request' => false,
+            ]);
 
-            Interview::where([
+            $this->workflow->deactivate(Interview::class, [
                 "applicant_id" => $applicant_id,
-                "sale_id" => $sale_id
-            ])->update(['status' => 0]);
+                "sale_id" => $sale_id,
+            ]);
 
-            CVNote::where([
+            $this->workflow->deactivate(CVNote::class, [
                 "applicant_id" => $applicant_id,
-                "sale_id" => $sale_id
-            ])->update(["status" => 0]);
+                "sale_id" => $sale_id,
+            ]);
 
-            QualityNotes::where([
+            $this->workflow->deactivate(QualityNotes::class, [
                 "applicant_id" => $applicant_id,
-                "sale_id" => $sale_id
-            ])->update(["status" => 0]);
+                "sale_id" => $sale_id,
+            ]);
 
-            CrmNote::where([
+            $this->workflow->deactivate(CrmNote::class, [
                 "applicant_id" => $applicant_id,
-                "sale_id" => $sale_id
-            ])->update(["status" => 0]);
+                "sale_id" => $sale_id,
+            ]);
 
-            $crm_notes = new CrmNote();
-            $crm_notes->applicant_id = $applicant_id;
-            $crm_notes->user_id = $user_id;
-            $crm_notes->sale_id = $sale_id;
-            $crm_notes->details = $details;
-            $crm_notes->moved_tab_to = "request_reject";
-            $crm_notes->save();
+            $this->workflow->createWithUid(CrmNote::class, [
+                'applicant_id' => $applicant_id,
+                'user_id' => $user_id,
+                'sale_id' => $sale_id,
+                'details' => $details,
+                'moved_tab_to' => "request_reject",
+            ], 'crm_notes_uid');
 
-            //update uid
-            $crm_notes->crm_notes_uid = md5((string) $crm_notes->id);
-            $crm_notes->save();
-
-            History::where([
+            $this->workflow->deactivate(History::class, [
                 "applicant_id" => $applicant_id,
-                "sale_id" => $sale_id
-            ])->update(["status" => 0]);
+                "sale_id" => $sale_id,
+            ]);
 
-            $history = new History();
-            $history->applicant_id = $applicant_id;
-            $history->user_id = $user_id;
-            $history->sale_id = $sale_id;
-            $history->stage = 'crm';
-            $history->sub_stage = 'crm_request_reject';
-            $history->save();
-
-            //update uid
-            $history->history_uid = md5((string) $history->id);
-            $history->save();
+            $this->workflow->createWithUid(History::class, [
+                'applicant_id' => $applicant_id,
+                'user_id' => $user_id,
+                'sale_id' => $sale_id,
+                'stage' => 'crm',
+                'sub_stage' => 'crm_request_reject',
+            ], 'history_uid');
 
             return true; // Indicate success
 
@@ -9545,7 +9521,7 @@ class CrmController extends Controller
 
             // Re-throw the exception to be caught by the calling method
             throw $e;
-        }   
+        }
     }
     /** CRM Request No Response*/
     private function crmRequestNoResponseAction($applicant_id, $user_id, $sale_id, $details)
