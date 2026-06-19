@@ -21,7 +21,6 @@
     // ── Server endpoints + CSRF (for the dial-collision lock) ────────────────
     var XP_CSRF        = '{{ csrf_token() }}';
     var XP_ACQUIRE_URL = '{{ route("dialing.acquire", [], false) }}';
-    var XP_RELEASE_URL = '{{ route("dialing.release", [], false) }}';
     var XP_INFO_URL    = '{{ route("dialing.info", [], false) }}';
     console.log('[xplosip] click-to-dial bridge loaded (lock+count active)');
 
@@ -134,23 +133,6 @@
                 }
             }).catch(function () { cb({ ok: true, degraded: true }); });
         } catch (e) { cb({ ok: true, degraded: true }); }
-    }
-
-    // ── Release a server-side dial lock (fire-and-forget) ────────────────────
-    function releaseLock(num) {
-        try {
-            fetch(XP_RELEASE_URL, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': XP_CSRF,
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({ number: num })
-            }).catch(function () {});
-        } catch (e) {}
     }
 
     // ── Format seconds as h:mm, m:ss, or ss ──────────────────────────────────
@@ -315,7 +297,6 @@
                 if (res && res.ok) {
                     closeConfirm();
                     launchDesktop(num, res.callCount);
-                    setTimeout(function () { releaseLock(num); }, 15000);
                 } else {
                     showLocked(overlay, res || {
                         lockedBySelf: false,

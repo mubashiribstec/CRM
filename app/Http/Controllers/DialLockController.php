@@ -143,7 +143,7 @@ class DialLockController extends Controller
             ->phoneMatches($number)
             ->value('id');
 
-        return DB::transaction(function () use ($key, $number, $user, $now, $today, $until, $applicantId, $cfg) {
+        $response = DB::transaction(function () use ($key, $number, $user, $now, $today, $until, $applicantId, $cfg) {
             // ── Per-agent daily call cap ─────────────────────────────────────
             if ($cfg['max_calls_per_day'] > 0) {
                 $log = DialCallLog::where('phone_key', $key)
@@ -243,13 +243,6 @@ class DialLockController extends Controller
             $log->calls = ($log->exists ? $log->calls : 0) + 1;
             $log->save();
 
-            // ── Purge stale rows beyond the retention window (rate-limited) ──
-            if (Cache::add('dial_lock_purge_lock', true, 60)) {
-                $cutoff = $now->copy()->subDays($cfg['history_days']);
-                DialCallLog::where('call_date', '<', $cutoff->toDateString())->delete();
-                DialLock::where('expires_at', '<', $cutoff)->delete();
-            }
-
             return response()->json([
                 'ok'             => true,
                 'locked'         => false,
@@ -258,6 +251,17 @@ class DialLockController extends Controller
                 'dailyCallLimit' => $cfg['max_calls_per_day'],
             ]);
         });
+
+        // ── Purge per-agent call history beyond the retention window (rate-limited) ──
+        // Runs outside the transaction/row-lock above. dial_locks is NOT purged here:
+        // it holds one permanent row per phone_key (call_count / last-called-by
+        // history that should never reset), not a per-day log like dial_call_logs.
+        if (Cache::add('dial_lock_purge_lock', true, 60)) {
+            $cutoff = $now->copy()->subDays($cfg['history_days'])->toDateString();
+            DialCallLog::where('call_date', '<', $cutoff)->delete();
+        }
+
+        return $response;
     }
 
     /** POST /dialing/release — free a lock the calling agent holds. */

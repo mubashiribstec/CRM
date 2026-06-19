@@ -87,11 +87,13 @@ agent's own lock — i.e. it expires immediately so the number becomes
 available again straight away (subject to the *same‑user* timer if one is
 configured).
 
-This is now called automatically: after a successful `acquire()` +
-`launchDesktop()`, `xplosip-widget.blade.php` fires `releaseLock(num)` 15
-seconds later (fire‑and‑forget, success path only) — a grace period that
-lets the call actually connect before freeing the number for other agents,
-without requiring the agent to do anything manually.
+This is **manual only** — there is no automatic front‑end call to this
+endpoint today. (An earlier revision auto‑fired `releaseLock()` 15 seconds
+after `acquire()`, but that cleared `expires_at` for any call regardless of
+actual duration, which defeated the *other‑agent* lock timer for any call
+longer than 15 seconds. It was reverted.) Locks expire purely via timeout
+(`other_user_minutes` / `same_user_minutes`) unless/until a real
+"call ended" signal is wired up.
 
 ### 1.5 Daily call limit (per agent, per number)
 
@@ -115,17 +117,26 @@ This is checked first in `acquire()`, **inside the same `DB::transaction()`
    agent's `dial_call_logs` row for today is incremented (created if it
    doesn't exist).
 4. Finally, any `dial_call_logs` rows with `call_date` older than
-   `dialing_history_days` days ago are deleted, along with any `dial_locks`
-   rows whose `expires_at` is older than that same cutoff — this is the
-   "history overwrite": old per‑agent daily counters and stale lock rows
-   are purged opportunistically, so both tables only ever hold a rolling
-   window. Since there is no working cron/scheduler in this deployment
+   `dialing_history_days` days ago are deleted — this is the
+   "history overwrite": old per‑agent daily counters are purged
+   opportunistically, so the table only ever holds a rolling window.
+   **`dial_locks` is deliberately never purged**: unlike `dial_call_logs`
+   (one new row per agent/number/day), `dial_locks` holds exactly **one**
+   permanent row per `phone_key` that is upserted in place, so it does not
+   grow unbounded — and its `call_count` / last‑called‑by fields are an
+   intentionally permanent all‑time history, not a rolling log. (An earlier
+   revision also deleted `dial_locks` rows past the same cutoff; that was a
+   bug — it silently reset the all‑time call counter for any number that
+   went quiet for `dialing_history_days` days — and has been removed.)
+   Since there is no working cron/scheduler in this deployment
    (confirmed via `docker/entrypoint.sh` / `docker-compose.yml` — neither
-   invokes `schedule:run` or `schedule:work`), this purge has to run inline
-   during normal request handling rather than on a schedule. To avoid
-   running a `DELETE` on every single `acquire()` call, both purges are
-   gated behind `Cache::add('dial_lock_purge_lock', true, 60)` — an atomic
-   set‑if‑not‑exists check — so they only actually run once every 60
+   invokes `schedule:run` or `schedule:work`), the purge has to run inline
+   during normal request handling rather than on a schedule, and it runs
+   **after** the `DB::transaction()` above returns (not inside it), so it
+   doesn't extend the row‑lock critical section. To avoid running a
+   `DELETE` on every single `acquire()` call, it's gated behind
+   `Cache::add('dial_lock_purge_lock', true, 60)` — an atomic
+   set‑if‑not‑exists check — so it only actually runs once every 60
    seconds regardless of call volume.
 
    **Known limitation:** the daily‑reset boundary (`today()` /
