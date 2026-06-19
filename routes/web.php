@@ -52,6 +52,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
     Route::post('dialing/acquire',      [DialLockController::class, 'acquire'])->name('dialing.acquire');
     Route::post('dialing/release',      [DialLockController::class, 'release'])->name('dialing.release');
     Route::get('dialing/active-locks',  [DialLockController::class, 'activeList'])->name('dialing.active-locks');
+    Route::get('dialing/call-history',  [DialLockController::class, 'callHistory'])->name('dialing.call-history');
     Route::post('dialing/clear-lock',   [DialLockController::class, 'clearLock'])->name('dialing.clear-lock');
     Route::post('dialing/clear-all-locks', [DialLockController::class, 'clearAllLocks'])->name('dialing.clear-all-locks');
 

@@ -3,6 +3,7 @@
 namespace Horsefly;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class DialCallLog extends Model
 {
@@ -20,4 +21,9 @@ class DialCallLog extends Model
         'user_id'   => 'integer',
         'calls'     => 'integer',
     ];
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(\Horsefly\User::class);
+    }
 }

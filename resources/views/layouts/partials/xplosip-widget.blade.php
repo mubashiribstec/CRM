@@ -136,6 +136,23 @@
         } catch (e) { cb({ ok: true, degraded: true }); }
     }
 
+    // ── Release a server-side dial lock (fire-and-forget) ────────────────────
+    function releaseLock(num) {
+        try {
+            fetch(XP_RELEASE_URL, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': XP_CSRF,
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ number: num })
+            }).catch(function () {});
+        } catch (e) {}
+    }
+
     // ── Format seconds as h:mm, m:ss, or ss ──────────────────────────────────
     function fmtSeconds(s) {
         s = Math.max(0, s);
@@ -298,6 +315,7 @@
                 if (res && res.ok) {
                     closeConfirm();
                     launchDesktop(num, res.callCount);
+                    setTimeout(function () { releaseLock(num); }, 15000);
                 } else {
                     showLocked(overlay, res || {
                         lockedBySelf: false,

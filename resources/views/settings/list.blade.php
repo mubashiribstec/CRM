@@ -367,6 +367,32 @@
                                 </div>
                             </div>
 
+                            {{-- Call History Report --}}
+                            <div class="border rounded p-3 bg-light mt-4">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <h6 class="mb-0 fw-bold">Call History</h6>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <input type="date" class="form-control form-control-sm" id="call-history-date-from" style="width:auto" title="From date">
+                                        <input type="date" class="form-control form-control-sm" id="call-history-date-to" style="width:auto" title="To date">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="call-history-filter-btn">Filter</button>
+                                    </div>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover align-middle mb-0 w-100" id="call-history-table">
+                                        <thead class="table-dark">
+                                            <tr>
+                                                <th>#</th>
+                                                <th>Agent</th>
+                                                <th>Number</th>
+                                                <th>Date</th>
+                                                <th>Calls</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody></tbody>
+                                    </table>
+                                </div>
+                            </div>
+
                         </section>
 
                         <!-- SMTP Settings Form -->
@@ -1191,12 +1217,37 @@
             }
 
             // Only poll when the Dial Lock section is active
+            var callHistoryTable;
             $menuButtons.on('click', function () {
                 if ($(this).data('target') === '#form-dialing') {
                     startLocksRefresh();
+                    if (!callHistoryTable) {
+                        callHistoryTable = $('#call-history-table').DataTable({
+                            processing: true,
+                            serverSide: true,
+                            ajax: {
+                                url: '{{ route("dialing.call-history") }}',
+                                data: function (d) {
+                                    d.date_from = $('#call-history-date-from').val();
+                                    d.date_to   = $('#call-history-date-to').val();
+                                }
+                            },
+                            columns: [
+                                { data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false },
+                                { data: 'agent_name', name: 'agent_name' },
+                                { data: 'full_number', name: 'full_number' },
+                                { data: 'call_date', name: 'call_date' },
+                                { data: 'calls', name: 'calls' }
+                            ]
+                        });
+                    }
                 } else {
                     stopLocksRefresh();
                 }
+            });
+
+            $('#call-history-filter-btn').on('click', function () {
+                if (callHistoryTable) callHistoryTable.draw();
             });
 
             // ── Save dialing settings form ──────────────────────────────────────

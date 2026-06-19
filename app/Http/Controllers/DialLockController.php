@@ -9,7 +9,9 @@ use Horsefly\Setting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Yajra\DataTables\Facades\DataTables;
 
 /**
  * Prevents the same number from being dialled again while it is "in use".
@@ -241,8 +243,12 @@ class DialLockController extends Controller
             $log->calls = ($log->exists ? $log->calls : 0) + 1;
             $log->save();
 
-            // ── Purge per-agent call history beyond the retention window ─────
-            DialCallLog::where('call_date', '<', $now->copy()->subDays($cfg['history_days'])->toDateString())->delete();
+            // ── Purge stale rows beyond the retention window (rate-limited) ──
+            if (Cache::add('dial_lock_purge_lock', true, 60)) {
+                $cutoff = $now->copy()->subDays($cfg['history_days']);
+                DialCallLog::where('call_date', '<', $cutoff->toDateString())->delete();
+                DialLock::where('expires_at', '<', $cutoff)->delete();
+            }
 
             return response()->json([
                 'ok'             => true,
@@ -285,7 +291,7 @@ class DialLockController extends Controller
                 'call_count'       => (int) $r->call_count,
             ]);
 
-        $callsToday = DialLock::whereDate('locked_at', today())->count();
+        $callsToday = (int) DialCallLog::whereDate('call_date', today())->sum('calls');
 
         return response()->json([
             'locks'       => $locks,
@@ -310,6 +316,34 @@ class DialLockController extends Controller
         $count = DialLock::where('expires_at', '>', now())->count();
         DialLock::where('expires_at', '>', now())->update(['expires_at' => now()->subSecond()]);
         return response()->json(['ok' => true, 'cleared' => $count]);
+    }
+
+    /** GET /dialing/call-history — DataTables-backed per-agent call history report. */
+    public function callHistory(Request $request): JsonResponse
+    {
+        $query = DialCallLog::query()
+            ->with('user')
+            ->leftJoin('dial_locks', 'dial_locks.phone_key', '=', 'dial_call_logs.phone_key')
+            ->select('dial_call_logs.*', 'dial_locks.full_number as full_number')
+            ->orderBy('dial_call_logs.call_date', 'desc');
+
+        if ($request->filled('user_id')) {
+            $query->where('dial_call_logs.user_id', (int) $request->input('user_id'));
+        }
+        if ($request->filled('date_from')) {
+            $query->whereDate('dial_call_logs.call_date', '>=', $request->input('date_from'));
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('dial_call_logs.call_date', '<=', $request->input('date_to'));
+        }
+
+        return DataTables::eloquent($query)
+            ->addIndexColumn()
+            ->addColumn('agent_name', fn ($row) => $row->user?->name ?: 'Unknown')
+            ->addColumn('full_number', fn ($row) => $row->full_number ?: $row->phone_key)
+            ->editColumn('call_date', fn ($row) => $row->call_date->format('d M Y'))
+            ->rawColumns(['agent_name', 'full_number'])
+            ->make(true);
     }
 
     private function humanSeconds(int $s): string

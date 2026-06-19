@@ -87,6 +87,12 @@ agent's own lock — i.e. it expires immediately so the number becomes
 available again straight away (subject to the *same‑user* timer if one is
 configured).
 
+This is now called automatically: after a successful `acquire()` +
+`launchDesktop()`, `xplosip-widget.blade.php` fires `releaseLock(num)` 15
+seconds later (fire‑and‑forget, success path only) — a grace period that
+lets the call actually connect before freeing the number for other agents,
+without requiring the agent to do anything manually.
+
 ### 1.5 Daily call limit (per agent, per number)
 
 On top of the two timers above, each agent can be capped to a maximum
@@ -109,9 +115,26 @@ This is checked first in `acquire()`, **inside the same `DB::transaction()`
    agent's `dial_call_logs` row for today is incremented (created if it
    doesn't exist).
 4. Finally, any `dial_call_logs` rows with `call_date` older than
-   `dialing_history_days` days ago are deleted — this is the "history
-   overwrite": old per‑agent daily counters are purged opportunistically on
-   every successful call, so the table only ever holds a rolling window.
+   `dialing_history_days` days ago are deleted, along with any `dial_locks`
+   rows whose `expires_at` is older than that same cutoff — this is the
+   "history overwrite": old per‑agent daily counters and stale lock rows
+   are purged opportunistically, so both tables only ever hold a rolling
+   window. Since there is no working cron/scheduler in this deployment
+   (confirmed via `docker/entrypoint.sh` / `docker-compose.yml` — neither
+   invokes `schedule:run` or `schedule:work`), this purge has to run inline
+   during normal request handling rather than on a schedule. To avoid
+   running a `DELETE` on every single `acquire()` call, both purges are
+   gated behind `Cache::add('dial_lock_purge_lock', true, 60)` — an atomic
+   set‑if‑not‑exists check — so they only actually run once every 60
+   seconds regardless of call volume.
+
+   **Known limitation:** the daily‑reset boundary (`today()` /
+   `now()->startOfDay()->addDay()`) uses the single app‑wide timezone
+   (`APP_TIMEZONE`, currently `Europe/London`). There is no per‑user
+   timezone column anywhere in the schema, so if agents in different
+   timezones ever need their "day" to reset at their own local midnight
+   rather than the app's, this would need a dedicated fix (e.g. a
+   `users.timezone` column) — out of scope for now.
 
 Both `GET /dialing/info` and `POST /dialing/acquire` return
 `dailyCallCount`, `dailyCallLimit`, `dailyLimitReached`, and (when reached)
@@ -229,13 +252,14 @@ All routes are under the authenticated web group (`routes/web.php`).
 | `POST` | `/dialing/acquire` | `acquire()` | Try to start a call. Returns `ok: true` (and updates the lock/count/daily log) or **HTTP 423** with `reason: 'daily_limit' \| 'self_lock' \| 'other_lock'` and details if blocked. |
 | `POST` | `/dialing/release` | `release()` | Immediately expire the calling agent's own lock for a number. |
 | `GET`  | `/dialing/active-locks` | `activeList()` | All currently active locks plus `stats: { active_count, calls_today }`, for the Settings panel. |
+| `GET`  | `/dialing/call-history` | `callHistory()` | DataTables‑backed report of per‑agent daily call counts. See [§9](#9-dial-call-history-report). |
 | `POST` | `/dialing/clear-lock` | `clearLock()` | Admin: expire one specific lock by `id`. |
 | `POST` | `/dialing/clear-all-locks` | `clearAllLocks()` | Admin: expire every currently active lock. |
 
 `calls_today` (in `activeList()`) is computed as
-`DialLock::whereDate('locked_at', today())->count()` — i.e. how many
-numbers have had a call logged today (one per `phone_key` per day, since
-`locked_at` is overwritten on each call).
+`DialCallLog::whereDate('call_date', today())->sum('calls')` — i.e. the
+actual total number of dial attempts made by all agents today, not just
+the count of distinct numbers locked.
 
 ---
 
@@ -284,6 +308,32 @@ Saving the form posts to `POST /save-dialing-settings`
    - If it returns `ok: true`, `launchDesktop()` opens the `tel:` link to
      start the call via the desktop softphone, and the dialog shows the
      updated call count and daily count.
+
+---
+
+## 9. Dial Call History report
+
+`GET /dialing/call-history` (`DialLockController::callHistory()`) is a
+Yajra DataTables server‑side endpoint, following the same convention used
+elsewhere in the CRM
+(`DataTables::eloquent($query)->addIndexColumn()->addColumn()->make(true)`).
+
+It queries `dial_call_logs` (left‑joined to `dial_locks` on `phone_key` to
+show the original `full_number` where available) and returns one row per
+agent, per number, per day:
+
+| Column | Source |
+|--------|--------|
+| Agent | `user.name` via the `DialCallLog::user()` `BelongsTo` relation (falls back to `"Unknown"`) |
+| Number | `dial_locks.full_number` if a matching lock row still exists, else the raw `phone_key` |
+| Date | `call_date`, formatted `d M Y` |
+| Calls | `calls` — how many times that agent dialled that number on that date |
+
+Optional query filters (read from the request): `user_id`, `date_from`,
+`date_to`. A "Call History" card in Settings → Dial Lock Settings
+(`#form-dialing`, below the Active Locks table) renders this as a standard
+DataTable with date‑range and agent filter inputs that re‑trigger
+`.draw()` on change.
 
 ---
 
