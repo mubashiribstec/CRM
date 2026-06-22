@@ -220,6 +220,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
     Route::post('/getChatBoxMessages', [CommunicationController::class, 'getChatBoxMessages'])->name('getChatBoxMessages');
     Route::post('/sendChatBoxMsg', [CommunicationController::class, 'sendChatBoxMsg'])->name('sendChatBoxMsg');
     Route::get('getUserChats', [CommunicationController::class, 'getUserChats'])->name('getUserChats');
+    Route::post('/deleteChatBoxMsg', [CommunicationController::class, 'deleteChatBoxMsg'])->name('deleteChatBoxMsg');
     Route::get('getApplicantsForMessage', [CommunicationController::class, 'getApplicantsForMessage'])->name('getApplicantsForMessage');
     Route::get('getUnknownMessage', [CommunicationController::class, 'getUnknownMessage'])->name('getUnknownMessage');
 

@@ -507,7 +507,7 @@ class CommunicationController extends Controller
         $request->validate([
             'recipient_id' => 'required',
             'recipient_type' => 'required',
-            'recipient_phone' => 'required|string|max:50',
+            'recipient_phone' => ['required_unless:recipient_type,user', 'nullable', 'string', 'max:50'],
             'message' => 'required|string',
         ]);
 
@@ -523,7 +523,7 @@ class CommunicationController extends Controller
         $message->user_id = Auth::id();
         $message->msg_id = 'D' . mt_rand(1000000000000, 9999999999999);
         $message->message = $request->message;
-        $message->phone_number = $request->recipient_phone;
+        $message->phone_number = $request->recipient_type == 'user' ? null : $request->recipient_phone;
         $message->date = now()->toDateString();
         $message->time = now()->toTimeString();
         $message->is_sent = 0;
@@ -590,27 +590,56 @@ class CommunicationController extends Controller
                     'applicant_name'  => 'Unknown Number',
                     'applicant_phone' => $recipientId,
                 ];
+            } elseif ($list_ref === 'user-chat') {
+                // Fetch the recipient (the other agent)
+                $recipient = User::findOrFail($recipientId);
+                $currentUserId = Auth::id();
+
+                // A thread between me and the recipient is the set of rows where
+                // (module_id, user_id) is (recipient, me) or (me, recipient)
+                $threadScope = function ($query) use ($recipientId, $currentUserId) {
+                    $query->where('module_type', 'Horsefly\\User')
+                        ->where(function ($q) use ($recipientId, $currentUserId) {
+                            $q->where('module_id', $recipientId)->where('user_id', $currentUserId);
+                        })
+                        ->orWhere(function ($q) use ($recipientId, $currentUserId) {
+                            $q->where('module_id', $currentUserId)->where('user_id', $recipientId);
+                        });
+                };
+
+                // Mark messages sent to me by the recipient as read
+                Message::where('module_id', $currentUserId)
+                    ->where('user_id', $recipientId)
+                    ->where('module_type', 'Horsefly\\User')
+                    ->where('is_read', 0)
+                    ->update(['is_read' => 1]);
+
+                $query = Message::where($threadScope)
+                    ->with('user')
+                    ->orderByDesc('id')
+                    ->limit(10);
+
+                if ($beforeId) {
+                    $query->where('id', '<', $beforeId);
+                }
+
+                $messages = $query->get();
             } else {
                 // Fetch the recipient details when the list_ref is not 'unknown-chat'
                 $recipient = $moduleType::findOrFail($recipientId);
 
                 Message::where('module_id', $recipientId)
-                    ->where('module_type', ($recipientType === 'applicant' || $recipientType === 'unknown') ? Applicant::class : User::class)
+                    ->where('module_type', $moduleType)
                     ->where('status', 'incoming')
                     ->update(['is_read' => 1]);  // Ensure it's an integer value (0 or 1)
 
 
-                // Base query for fetching messages for both normal and 'unknown-chat' cases
+                // Base query for fetching messages
                 $query = Message::where('module_id', $recipientId)
                     ->where('module_type', $moduleType)
                     ->with('user')
                     ->orderByDesc('id')
                     ->limit(10); // chunk size
-
-                // Filter by authenticated user if the list_ref is 'user-chat'
-                if ($list_ref === 'user-chat') {
-                    $query->where('user_id', Auth::id());
-                }
 
                 // Load older messages (before a specific message ID)
                 if ($beforeId) {
@@ -622,17 +651,21 @@ class CommunicationController extends Controller
             }
 
             // Reverse the messages for UI (oldest → newest)
-            $formattedMessages = $messages->reverse()->values()->map(function ($message) {
+            $formattedMessages = $messages->reverse()->values()->map(function ($message) use ($list_ref) {
+                $isSender = $message->user_id == Auth::id();
+
                 return [
                     'id'           => $message->id,
                     'message'      => $message->message,
                     'created_at'   => $message->created_at->format('d M Y, h:i A'),
-                    'is_sender'    => $message->user_id == Auth::id(),
+                    'is_sender'    => $isSender,
                     'user_name'    => $message->user?->name ?? 'Unknown',
                     'is_read'      => $message->is_read ?? 0,
                     'is_sent'      => $message->is_sent ?? 0,
                     'phone_number' => $message->phone_number,
-                    'status'       => $message->status === 'outgoing' ? 'Sent' : 'Received',
+                    'status'       => $list_ref === 'user-chat'
+                        ? ($isSender ? 'Sent' : 'Received')
+                        : ($message->status === 'outgoing' ? 'Sent' : 'Received'),
                 ];
             });
 
@@ -640,14 +673,26 @@ class CommunicationController extends Controller
             $recipientStatus = $messages->isEmpty() ? false : true;
 
             // Prepare the response
-            return response()->json([
-                'recipient' => [
+            if ($list_ref === 'user-chat') {
+                $recipientData = [
+                    'id'    => $recipient->id,
+                    'name'  => $recipient->name ?? 'Unknown',
+                    'phone_primary' => null,
+                    'phone_secondary' => null,
+                    'status' => $recipientStatus ? 'active' : 'inactive',
+                ];
+            } else {
+                $recipientData = [
                     'id'    => $recipient['id'] ?? $recipient->id,
                     'name'  => $recipient['applicant_name'] ?? $recipient->applicant_name ?? 'Unknown',
                     'phone_primary' => $recipient['applicant_phone'] ?? $recipient->applicant_phone ?? '0',
                     'phone_secondary' => $recipient['applicant_phone_secondary'] ?? $recipient->applicant_phone_secondary ?? '0',
                     'status' => $recipientStatus ? 'active' : 'inactive',
-                ],
+                ];
+            }
+
+            return response()->json([
+                'recipient' => $recipientData,
                 'messages' => $formattedMessages,
                 'has_more' => $messages->count() == 10,
             ]);
@@ -795,70 +840,112 @@ class CommunicationController extends Controller
             $limit = (int) $request->input('limit', 10);
             $start = (int) $request->input('start', 0);
 
-            // Step 1: Get latest message ID per applicant sent by current user
-            $latestMessageIds = DB::table('messages')
+            // Last message for each thread between the current user and another user
+            // (a thread is the set of rows where (module_id, user_id) is (A,B) or (B,A))
+            $lastMessageIds = DB::table('messages')
                 ->select(DB::raw('MAX(id) as id'))
-                ->where('user_id', $currentUserId)
-                ->where('module_type', 'Horsefly\\Applicant')
-                ->groupBy('module_id');
-
-            // Step 2: Join to get full message and applicant
-            $raw_query = DB::table('messages')
-                ->joinSub($latestMessageIds, 'latest_messages', function ($join) {
-                    $join->on('messages.id', '=', 'latest_messages.id');
+                ->where('module_type', 'Horsefly\\User')
+                ->whereNull('deleted_at')
+                ->where(function ($q) use ($currentUserId) {
+                    $q->where('user_id', $currentUserId)
+                        ->orWhere('module_id', $currentUserId);
                 })
-                ->join('applicants', 'messages.module_id', '=', 'applicants.id')
-                ->leftJoin(
-                    DB::raw('(SELECT module_id, COUNT(*) as unread_count 
-                            FROM messages 
-                            WHERE is_read = 0 AND status = "incoming"
-                            AND module_type = "Horsefly\\\\Applicant" 
-                            AND user_id = ' . $currentUserId . '
-                            GROUP BY module_id) as unread_msgs'),
-                    'messages.module_id',
-                    '=',
-                    'unread_msgs.module_id'
-                )
+                ->groupBy(DB::raw('IF(user_id = ' . $currentUserId . ', module_id, user_id)'));
+
+            $unreadCounts = DB::table('messages')
+                ->select('user_id', DB::raw('COUNT(*) as unread_count'))
+                ->where('module_type', 'Horsefly\\User')
+                ->whereNull('deleted_at')
+                ->where('module_id', $currentUserId)
+                ->where('is_read', 0)
+                ->groupBy('user_id');
+
+            // Resolve the "other party" for each last-message row, then join back to users
+            $threads = DB::table('messages as m')
+                ->joinSub($lastMessageIds, 'last_ids', function ($join) {
+                    $join->on('m.id', '=', 'last_ids.id');
+                })
                 ->select(
-                    'applicants.id',
-                    'applicants.applicant_name as name',
-                    'messages.message',
-                    'messages.created_at',
+                    'm.message',
+                    'm.created_at',
+                    DB::raw('IF(m.user_id = ' . $currentUserId . ', m.module_id, m.user_id) as other_user_id')
+                );
+
+            $usersQuery = DB::table('users')
+                ->where('users.id', '!=', $currentUserId)
+                ->where('users.is_active', 1)
+                ->whereNull('users.deleted_at')
+                ->leftJoinSub($threads, 'threads', function ($join) {
+                    $join->on('users.id', '=', 'threads.other_user_id');
+                })
+                ->leftJoinSub($unreadCounts, 'unread_msgs', function ($join) {
+                    $join->on('users.id', '=', 'unread_msgs.user_id');
+                })
+                ->select(
+                    'users.id',
+                    'users.name',
+                    'threads.message',
+                    'threads.created_at',
                     DB::raw('COALESCE(unread_msgs.unread_count, 0) as unread_count')
                 );
 
             if ($request->search) {
-                $raw_query->where('applicants.applicant_name', 'like', '%' . $request->search . '%')
-                    ->orWhere('applicant_phone', 'like', '%' . $request->search . '%');
+                $usersQuery->where('users.name', 'like', '%' . $request->search . '%');
             }
 
-            $applicants = $raw_query->orderByDesc('messages.created_at')
+            $users = $usersQuery
+                ->orderByDesc(DB::raw('unread_count > 0'))
+                ->orderByDesc('unread_count')
+                ->orderByDesc('threads.created_at')
+                ->orderBy('users.name')
                 ->offset($start)
                 ->limit($limit)
                 ->get();
 
-            // Transform the collection to match frontend expectations
-            $applicants = $applicants->map(function ($applicant) {
+            $data = $users->map(function ($user) {
                 return [
-                    'id' => $applicant->id,
-                    'name' => $applicant->name,
-                    'last_message' => [
-                        'message' => Str::limit($applicant->message, 50),
-                        'time' => Carbon::parse($applicant->created_at)->format('h:i A'),
-                        'unread_count' => $applicant->unread_count,
-                        'applicant_name' => $applicant->name,
-                    ],
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'last_message' => $user->message ? [
+                        'message' => Str::limit($user->message, 50),
+                        'time' => $user->created_at ? Carbon::parse($user->created_at)->format('h:i A') : '',
+                        'unread_count' => (int) $user->unread_count,
+                    ] : null,
                 ];
             });
 
             return response()->json([
-                'data' => $applicants,
-                'has_more' => $applicants->count() == $limit
+                'data' => $data,
+                'has_more' => $data->count() == $limit
             ]);
         } catch (\Exception $e) {
-            Log::error('Error fetching applicants for messages: ' . $e->getMessage());
-            return response()->json(['error' => 'Failed to fetch applicants'], 500);
+            Log::error('Error fetching user chats: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to fetch user chats'], 500);
         }
+    }
+
+    public function deleteChatBoxMsg(Request $request)
+    {
+        if (!Auth::user() || !Auth::user()->is_admin) {
+            return response()->json(['error' => 'Only an admin can delete messages.'], 403);
+        }
+
+        $request->validate([
+            'message_id' => 'required',
+        ]);
+
+        $message = Message::find($request->message_id);
+
+        if (!$message) {
+            return response()->json(['error' => 'Message not found.'], 404);
+        }
+
+        $message->delete();
+
+        return response()->json([
+            'success' => true,
+            'message_id' => $message->id,
+        ]);
     }
 
 

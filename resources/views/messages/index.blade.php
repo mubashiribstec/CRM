@@ -238,6 +238,8 @@
         };
     }
 
+    const isAdmin = @json((bool) (auth()->user()->is_admin ?? false));
+
     let isLoadingApplicants = false;
     let isLoadingUnknown = false;
     let isLoadingUsers = false;
@@ -491,7 +493,7 @@
                     userListHtml += `
                         <div class="border-bottom">
                             <a href="#!" class="d-block user-chat" data-ref-name="user-chat"
-                            data-recipient-id="${user.id}" data-recipient-type="applicant">
+                            data-recipient-id="${user.id}" data-recipient-type="user">
                                 <div class="d-flex align-items-center p-2">
                                     <img src="/images/users/avatar-${user.id % 10 || 1}.jpg"
                                         class="avatar rounded-circle">
@@ -636,6 +638,9 @@
                     } else {
                         sendStatusIcon = '<i class="ri-check-line fs-18 text-muted"></i>'; // Pending / Not sent
                     }
+                    const deleteIcon = isAdmin
+                        ? `<i class="ri-delete-bin-line text-danger delete-message-btn" style="cursor:pointer;" data-message-id="${message.id}" title="Delete message"></i>`
+                        : '';
                     const messageHtml = `
                         <li class="d-flex gap-2 clearfix justify-content-end odd">
                             <div class="chat-conversation-text ms-0">
@@ -647,14 +652,15 @@
                                 </div>
                                 <div class="text-end">
                                     <small class="text-muted">
-                                        ${message.phone_number || ''} | 
+                                        ${message.phone_number || ''} |
                                     </small>
                                     ${sendStatusIcon}
+                                    ${deleteIcon}
                                 </div>
                             </div>
                             <img src="${avatar}" class="avatar rounded-circle">
                         </li>
-                        
+
                     `;
                     $('#chatConversation').append(messageHtml);
                     $('#chatConversation').scrollTop($('#chatConversation')[0].scrollHeight);
@@ -698,12 +704,46 @@
                 hasMoreUnknown = true; // reset flag
                 loadUnknownMessages('');        // ✅ pass empty string
             } else if (currentRecipientType === 'contact') {
+                currentRecipientType = 'user';
                 activeTab = 'user-chat';
                 userStart = 0;             // reset pagination
                 $('#userList').html('');   // clear old list
                 hasMoreUsers = true;       // reset flag
                 loadUsers('');             // ✅ pass empty string
             }
+        });
+
+        // Delete message (admin only)
+        $(document).on('click', '.delete-message-btn', function (e) {
+            e.preventDefault();
+            const messageId = $(this).data('message-id');
+            const $li = $(this).closest('li');
+
+            if (!confirm('Delete this message?')) return;
+
+            $.ajax({
+                url: "{{ route('deleteChatBoxMsg') }}",
+                method: 'POST',
+                data: {
+                    message_id: messageId,
+                    _token: '{{ csrf_token() }}'
+                },
+                success: function() {
+                    $li.fadeOut(200, function() { $(this).remove(); });
+
+                    if (currentRecipientType === 'applicant') {
+                        loadApplicants('', 0, applicantLimit, true);
+                    } else if (currentRecipientType === 'unknown') {
+                        loadUnknownMessages('', 0, unknownLimit, true);
+                    } else if (currentRecipientType === 'user') {
+                        loadUsers('', 0, userLimit, true);
+                    }
+                },
+                error: function(xhr) {
+                    const msg = xhr.responseJSON?.error || 'Failed to delete message.';
+                    toastr.error(msg);
+                }
+            });
         });
 
         let searchTimeout;
@@ -819,7 +859,9 @@
                     </div>
                 `);
 
-                setPhoneNumber(recipient.phone_primary, recipient.phone_secondary)
+                if (recipientType !== 'user') {
+                    setPhoneNumber(recipient.phone_primary, recipient.phone_secondary)
+                }
 
                 const el = $('#chatConversation')[0];
                 el.scrollTop = el.scrollHeight;
@@ -909,6 +951,10 @@
             ? '<i class="ri-check-double-line fs-18 text-info"></i>'
             : '<i class="ri-check-line fs-18 text-muted"></i>';
 
+        const deleteIcon = isAdmin
+            ? `<i class="ri-delete-bin-line text-danger delete-message-btn" style="cursor:pointer;" data-message-id="${message.id}" title="Delete message"></i>`
+            : '';
+
         if (message.status === 'Sent') {
             return `
                 <li class="d-flex gap-2 clearfix justify-content-end odd">
@@ -921,9 +967,10 @@
                         </div>
                         <div class="text-end">
                             <small class="text-muted">
-                                ${message.phone_number || ''} | 
+                                ${message.phone_number || ''} |
                             </small>
                             ${sendStatusIcon}
+                            ${deleteIcon}
                         </div>
                     </div>
                     <img src="${avatar}" class="avatar rounded-circle">
@@ -948,6 +995,7 @@
                             ${message.phone_number || ''} | Seen
                         </small>
                         ${receiveStatusIcon}
+                        ${deleteIcon}
                     </div>
                 </div>
             </li>

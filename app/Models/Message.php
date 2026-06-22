@@ -3,10 +3,13 @@
 namespace Horsefly;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
 class Message extends Model
 {
+    use SoftDeletes;
+
     protected $table = 'messages';
     protected $fillable=[
         // 'id',
