@@ -147,11 +147,10 @@
                                     <th>Date</th>
                                     <th>Sent By</th>
                                     <th>Applicant Name</th>
-                                    {{-- <th>Email</th> --}}
                                     <th>Title</th>
                                     <th>Category</th>
                                     <th>PostCode</th>
-                                    <th width="10%">Phone</th>
+                                    <th width="10%">Phone / Landline</th>
                                     <th>Applicant Resume</th>
                                     <th>CRM Resume</th>
                                     <th>Head Office</th>
@@ -281,11 +280,10 @@
                     { data: 'notes_created_at', name: 'notes_created_at' },
                     { data: 'user_name', name: 'users.name'},
                     { data: 'applicant_name', name: 'applicants.applicant_name' },
-                    // { data: 'applicant_email', name: 'applicants.applicant_email' },
                     { data: 'job_title', name: 'job_titles.name' },
                     { data: 'job_category', name: 'job_categories.name' },
                     { data: 'applicant_postcode', name: 'applicants.applicant_postcode' },
-                    { data: 'applicantPhone', name: 'applicants.applicant_phone' },
+                    { data: 'applicantPhone', name: 'applicants.applicant_phone', orderable: false },
                     { data: 'applicant_resume', name:'applicants.applicant_cv', orderable: false, searchable: false },
                     { data: 'crm_resume', name:'applicants.updated_cv', orderable: false, searchable: false },
                     { data: 'office_name', name: 'offices.office_name' },

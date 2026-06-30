@@ -730,19 +730,23 @@ class ApplicantController extends Controller
                     }
                     return $html;
                 })
-                ->editColumn('applicantEmail', function ($applicant) {
-                    $email = '';
-                    if ($applicant->is_blocked) {
-                        $email = "<span class='badge bg-dark'>Blocked</span>";
-                    } else {
-                        $email = $applicant->applicant_email;
-
-                        if ($applicant->applicant_email_secondary) {
-                            $email .= '<br>' . $applicant->applicant_email_secondary;
-                        }
+                ->addColumn('applicantEmail', function ($applicant) {
+                    // Blocked applicant + no permission
+                    if ($applicant->is_blocked && !Gate::allows('applicant-show-blocked-data')) {
+                        return "<span class='badge bg-dark'>Blocked</span>";
                     }
 
-                    return $email; // Using accessor
+                    $email = $applicant->applicant_email_secondary
+                        ? $applicant->applicant_email . '<br>' . $applicant->applicant_email_secondary
+                        : $applicant->applicant_email;
+
+                    // Blocked applicant + has permission
+                    if ($applicant->is_blocked && Gate::allows('applicant-show-blocked-data')) {
+                        return '<div class="bg-dark text-white p-1 rounded">' . $email . '</div>';
+                    }
+
+                    // Normal applicant
+                    return $email;
                 })
                 // ─── Per-Column Search Handlers (Optimized) ───────────────────────
                 ->filterColumn('applicant_name', function ($query, $keyword) {
@@ -2507,7 +2511,17 @@ class ApplicantController extends Controller
                     ';
                 })
                 ->addColumn('sale_postcode', function ($sale) {
-                    return $sale->formatted_postcode; // Using accessor
+                    $rawPostcode = trim($sale->sale_postcode);
+                    if (empty($rawPostcode))
+                        return '<div class="text-center w-100">-</div>';
+
+                    $postcode = $sale->formatted_postcode;
+                    $copyBtn = '<button type="button" class="btn btn-sm btn-link text-muted p-0 ms-2 copy-postcode"
+                                    data-postcode="' . e($sale->sale_postcode) . '" title="Copy Postcode">
+                                    <iconify-icon icon="solar:copy-linear" class="fs-18"></iconify-icon>
+                                </button>';
+
+                    return '<div class="d-flex align-items-center justify-content-between"><span>' . $postcode . '</span>' . $copyBtn . '</div>';
                 })
                 ->addColumn('created_at', function ($sale) {
                     return $sale->formatted_created_at; // Using accessor
@@ -2654,7 +2668,7 @@ class ApplicantController extends Controller
 
                     return $html;
                 })
-                ->rawColumns(['sale_notes', 'paid_status', 'experience', 'position_type', 'qualification', 'salary', 'cv_limit', 'job_title', 'open_date', 'job_category', 'office_name', 'unit_name', 'status', 'action', 'statusFilter'])
+                ->rawColumns(['sale_notes', 'sale_postcode', 'paid_status', 'experience', 'position_type', 'qualification', 'salary', 'cv_limit', 'job_title', 'open_date', 'job_category', 'office_name', 'unit_name', 'status', 'action', 'statusFilter'])
                 ->make(true);
         }
     }
