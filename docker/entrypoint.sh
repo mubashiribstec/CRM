@@ -188,6 +188,22 @@ heal "2026_05_29_120000_add_normalized_phone_columns_to_applicants_table" \
      "SELECT COUNT(*) FROM information_schema.columns WHERE ${SCHEMA} AND table_name='applicants' AND column_name='applicant_phone_normalized';"
 log "Schema self-heal done."
 
+# ── 4c. Always reconcile permissions & roles (idempotent) ─────────────────────
+# The full seed in step 5 only runs on an EMPTY database, so new permissions
+# added to PermissionsTableSeeder never reach existing deployments — leaving
+# roles "broken" (e.g. super_admin missing a freshly-added permission). These
+# two seeders are idempotent (firstOrCreate + syncPermissions), so running them
+# on every startup safely creates any missing permissions and re-grants the full
+# set to super_admin. Finally flush Spatie's permission cache so the new grants
+# take effect immediately.
+log "Reconciling permissions & roles ..."
+php artisan db:seed --class='Database\Seeders\PermissionsTableSeeder' --force --ansi 2>&1 \
+    || log "WARN: PermissionsTableSeeder failed."
+php artisan db:seed --class='Database\Seeders\RoleSeeder' --force --ansi 2>&1 \
+    || log "WARN: RoleSeeder failed."
+php artisan permission:cache-reset --ansi 2>&1 || true
+log "Permissions & roles reconciled."
+
 # ── 5. Seed database on first start ───────────────────────────────────────────
 # SEED_DATABASE: auto | true | force | false  (default: auto)
 SEED_MODE="${SEED_DATABASE:-auto}"
