@@ -1508,7 +1508,7 @@ class QualityController extends Controller
     {
         return DB::table('revert_stages as rs')
             ->joinSub(
-                DB::table(DB::raw('`revert_stages` FORCE INDEX (idx_revert_grp_v2)'))
+                DB::table('revert_stages')
                     ->select('applicant_id', 'sale_id', DB::raw('MAX(id) as max_id'))
                     ->whereIn('stage', ['quality_note', 'cv_hold', 'no_job_quality_cvs'])
                     ->groupBy('applicant_id', 'sale_id'),

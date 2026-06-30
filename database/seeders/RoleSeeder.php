@@ -28,10 +28,15 @@ class RoleSeeder extends Seeder
             $superAdminRole->syncPermissions($allPermissions);
         }
 
-        // ── Assign super_admin role to user ID 1 (the first admin) ───────────
+        // ── Assign super_admin to user ID 1 ONLY on first-time setup ─────────
+        // This seeder runs on every container start (entrypoint reconcile), so
+        // we must NOT unconditionally syncRoles() here — that would strip and
+        // revert user 1's roles back to super_admin on every deploy, silently
+        // undoing any intentional role change. Only assign when user 1 has no
+        // role yet (a fresh install).
         $user = User::find(1);
-        if ($user) {
-            $user->syncRoles(['super_admin']);
+        if ($user && $user->roles()->count() === 0) {
+            $user->assignRole('super_admin');
         }
     }
 }

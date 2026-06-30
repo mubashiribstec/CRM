@@ -3878,6 +3878,7 @@ class SaleController extends Controller
                 'applicants.applicant_name',
                 'applicants.applicant_postcode',
                 'applicants.applicant_phone',
+                'applicants.applicant_phone_secondary',
                 'applicants.applicant_landline',
                 'applicants.job_category_id',
                 'applicants.job_title_id',
