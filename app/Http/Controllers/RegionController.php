@@ -157,7 +157,6 @@ class RegionController extends Controller
         }
 
         if ($request->ajax()) {
-            $revealPhone = (bool) auth()->user()?->can('applicant-view-phone-number');
             return DataTables::eloquent($model)
                 ->addIndexColumn() // This will automatically add a serial number to the rows
                 ->addColumn('job_title', function ($applicant) {
@@ -241,17 +240,17 @@ class RegionController extends Controller
                         </a>
                     ';
                 })
-                ->addColumn('applicant_phone', function ($applicant) use ($revealPhone) {
+                ->addColumn('applicant_phone', function ($applicant) {
                     if ($applicant->is_blocked) {
                         return "<span class='badge bg-dark'>Blocked</span>";
                     }
 
                     $parts = [];
                     if (!empty(trim($applicant->applicant_phone))) {
-                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone', $revealPhone);
+                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone');
                     }
                     if (!empty(trim($applicant->applicant_landline))) {
-                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline', $revealPhone);
+                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline');
                     }
 
                     return implode('<br>', $parts) ?: '-';

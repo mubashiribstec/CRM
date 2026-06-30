@@ -649,7 +649,6 @@ class ResourceController extends Controller
 
         // Return DataTables response
         if ($request->ajax()) {
-            $revealPhone = (bool) auth()->user()?->can('applicant-view-phone-number');
 
             return DataTables::of($query)
                 ->addIndexColumn()
@@ -666,20 +665,20 @@ class ResourceController extends Controller
                 ->addColumn('job_title', fn($applicant) => e($applicant->job_title_name ?? '-'))
                 ->addColumn('job_category', fn($applicant) => $applicant->job_category_name ? strtoupper($applicant->job_category_name) . ($applicant->job_type === 'specialist' ? '<br>(' . ucwords('Specialist') . ')' : '') : '-')
                 ->addColumn('job_source', fn($applicant) => strtoupper($applicant->job_source_name ?? '-'))
-                ->addColumn('applicantPhone', function ($applicant) use ($revealPhone) {
+                ->addColumn('applicantPhone', function ($applicant) {
                     if ($applicant->is_blocked) {
                         return "<span class='badge bg-dark'>Blocked</span>";
                     }
 
                     $parts = [];
                     if (!empty(trim($applicant->applicant_phone))) {
-                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone', $revealPhone);
+                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone');
                     }
                     if (!empty(trim($applicant->applicant_phone_secondary))) {
-                        $parts[] = DialLink::render($applicant->applicant_phone_secondary, 'Secondary Phone', $revealPhone);
+                        $parts[] = DialLink::render($applicant->applicant_phone_secondary, 'Secondary Phone');
                     }
                     if (!empty(trim($applicant->applicant_landline))) {
-                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline', $revealPhone);
+                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline');
                     }
 
                     return implode('<br>', $parts) ?: '-';
@@ -1137,7 +1136,6 @@ class ResourceController extends Controller
 
         // ✅ DataTables response
         if ($request->ajax()) {
-            $revealPhone = (bool) auth()->user()?->can('applicant-view-phone-number');
 
             return DataTables::eloquent($model)
                 ->addIndexColumn()
@@ -1167,8 +1165,8 @@ class ResourceController extends Controller
                                ' . $shortNotes . '
                             </a>';
                 })
-                ->addColumn('applicant_phone', fn($a) => DialLink::render($a->formatted_phone, 'Primary Phone', $revealPhone) ?: '-')
-                ->addColumn('applicant_landline', fn($a) => DialLink::render($a->formatted_landline, 'Landline', $revealPhone) ?: '-')
+                ->addColumn('applicant_phone', fn($a) => DialLink::render($a->formatted_phone, 'Primary Phone') ?: '-')
+                ->addColumn('applicant_landline', fn($a) => DialLink::render($a->formatted_landline, 'Landline') ?: '-')
                 ->addColumn('applicant_experience', function ($a) {
                     if (empty($a->applicant_experience) || $a->applicant_experience === 'NULL') {
                         return '-';
@@ -1417,7 +1415,6 @@ class ResourceController extends Controller
         }
 
         if ($request->ajax()) {
-            $revealPhone = (bool) auth()->user()?->can('applicant-view-phone-number');
             return DataTables::eloquent($model)
                 ->addColumn('checkbox', function ($applicant) {
                     return '<input type="checkbox" name="applicant_checkbox[]" class="applicant_checkbox" value="' . $applicant->id . '"/>';
@@ -1472,11 +1469,11 @@ class ResourceController extends Controller
                             <iconify-icon icon="solar:clipboard-add-linear" class="text-warning fs-24"></iconify-icon>
                         </a>';
                 })
-                ->addColumn('applicant_phone', function ($applicant) use ($revealPhone) {
-                    return DialLink::render($applicant->formatted_phone, 'Primary Phone', $revealPhone) ?: '-';
+                ->addColumn('applicant_phone', function ($applicant) {
+                    return DialLink::render($applicant->formatted_phone, 'Primary Phone') ?: '-';
                 })
-                ->addColumn('applicant_landline', function ($applicant) use ($revealPhone) {
-                    return DialLink::render($applicant->formatted_landline, 'Landline', $revealPhone) ?: '-';
+                ->addColumn('applicant_landline', function ($applicant) {
+                    return DialLink::render($applicant->formatted_landline, 'Landline') ?: '-';
                 })
                 ->addColumn('applicant_experience', function ($applicant) {
                     if (empty($applicant->applicant_experience) || $applicant->applicant_experience === 'NULL') {
@@ -1682,7 +1679,6 @@ class ResourceController extends Controller
 
         // Return DataTables response
         if ($request->ajax()) {
-            $revealPhone = (bool) auth()->user()?->can('applicant-view-phone-number');
             return DataTables::of($query)
                 ->addIndexColumn()
                 ->addColumn('job_title', fn($applicant) => $applicant->job_title_name ? strtoupper($applicant->job_title_name) : '-')
@@ -1758,17 +1754,17 @@ class ResourceController extends Controller
 
                     return $email;
                 })
-                ->addColumn('applicant_phone', function ($applicant) use ($revealPhone) {
+                ->addColumn('applicant_phone', function ($applicant) {
                     if ($applicant->is_blocked) {
                         return "<span class='badge bg-dark'>Blocked</span>";
                     }
 
                     $parts = [];
                     if (!empty(trim($applicant->applicant_phone))) {
-                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone', $revealPhone);
+                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone');
                     }
                     if (!empty(trim($applicant->applicant_landline))) {
-                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline', $revealPhone);
+                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline');
                     }
 
                     return implode('<br>', $parts) ?: '-';
@@ -1941,7 +1937,6 @@ class ResourceController extends Controller
         }
 
         if ($request->ajax()) {
-            $revealPhone = (bool) auth()->user()?->can('applicant-view-phone-number');
             return DataTables::eloquent($model)
                 ->addColumn('checkbox', function ($applicant) {
                     return '<input type="checkbox" name="applicant_checkbox[]" class="applicant_checkbox" value="' . $applicant->id . '"/>';
@@ -2021,17 +2016,17 @@ class ResourceController extends Controller
                         </div>
                     ';
                 })
-                ->addColumn('applicant_phone', function ($applicant) use ($revealPhone) {
+                ->addColumn('applicant_phone', function ($applicant) {
                     if ($applicant->is_blocked) {
                         return "<span class='badge bg-dark'>Blocked</span>";
                     }
 
                     $parts = [];
                     if (!empty(trim($applicant->applicant_phone))) {
-                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone', $revealPhone);
+                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone');
                     }
                     if (!empty(trim($applicant->applicant_landline))) {
-                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline', $revealPhone);
+                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline');
                     }
 
                     return implode('<br>', $parts) ?: '-';
@@ -2349,7 +2344,6 @@ class ResourceController extends Controller
         }
 
         if ($request->ajax()) {
-            $revealPhone = (bool) auth()->user()?->can('applicant-view-phone-number');
             return DataTables::eloquent($model)
                 ->addColumn('checkbox', function ($applicant) {
                     return '<input type="checkbox" name="applicant_checkbox[]" 
@@ -2490,17 +2484,17 @@ class ResourceController extends Controller
                         </div>
                     ';
                 })
-                ->addColumn('applicant_phone', function ($applicant) use ($revealPhone) {
+                ->addColumn('applicant_phone', function ($applicant) {
                     if ($applicant->is_blocked) {
                         return "<span class='badge bg-dark'>Blocked</span>";
                     }
 
                     $parts = [];
                     if (!empty(trim($applicant->applicant_phone))) {
-                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone', $revealPhone);
+                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone');
                     }
                     if (!empty(trim($applicant->applicant_landline))) {
-                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline', $revealPhone);
+                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline');
                     }
 
                     return implode('<br>', $parts) ?: '-';
@@ -2895,7 +2889,6 @@ class ResourceController extends Controller
         }
 
         if ($request->ajax()) {
-            $revealPhone = (bool) auth()->user()?->can('applicant-view-phone-number');
             return DataTables::eloquent($model)
                 ->addColumn('checkbox', function ($applicant) {
                     return '<input type="checkbox" name="applicant_checkbox[]" class="applicant_checkbox" value="' . $applicant->id . '"/>';
@@ -3008,20 +3001,20 @@ class ResourceController extends Controller
 
                     return $notes;
                 })
-                ->addColumn('applicantPhone', function ($applicant) use ($revealPhone) {
+                ->addColumn('applicantPhone', function ($applicant) {
                     if ($applicant->is_blocked) {
                         return "<span class='badge bg-dark'>Blocked</span>";
                     }
 
                     $parts = [];
                     if (!empty(trim($applicant->applicant_phone))) {
-                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone', $revealPhone);
+                        $parts[] = DialLink::render($applicant->applicant_phone, 'Primary Phone');
                     }
                     if (!empty(trim($applicant->applicant_phone_secondary))) {
-                        $parts[] = DialLink::render($applicant->applicant_phone_secondary, 'Secondary Phone', $revealPhone);
+                        $parts[] = DialLink::render($applicant->applicant_phone_secondary, 'Secondary Phone');
                     }
                     if (!empty(trim($applicant->applicant_landline))) {
-                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline', $revealPhone);
+                        $parts[] = DialLink::render($applicant->applicant_landline, 'Landline');
                     }
 
                     return implode('<br>', $parts) ?: '-';

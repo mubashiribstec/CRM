@@ -672,8 +672,6 @@ class ApplicantController extends Controller
 
 
         if ($request->ajax()) {
-            $revealPhone = (bool) auth()->user()?->can('applicant-view-phone-number');
-
             return DataTables::eloquent($model)
                 ->addIndexColumn() // This will automatically add a serial number to the rows
                 ->addColumn('job_title', function ($applicant) {
@@ -833,20 +831,20 @@ class ApplicantController extends Controller
                         return $notes;
                     }
                 })
-                ->addColumn('applicantPhone', function ($applicant) use ($revealPhone) {
+                ->addColumn('applicantPhone', function ($applicant) {
                     if ($applicant->is_blocked) {
                         return "<span class='badge bg-dark'>Blocked</span>";
                     }
 
                     $items = [];
                     if (!empty(trim($applicant->applicant_phone))) {
-                        $items[] = DialLink::render($applicant->applicant_phone, 'Primary Phone', $revealPhone);
+                        $items[] = DialLink::render($applicant->applicant_phone, 'Primary Phone');
                     }
                     if (!empty(trim($applicant->applicant_phone_secondary))) {
-                        $items[] = DialLink::render($applicant->applicant_phone_secondary, 'Secondary Phone', $revealPhone);
+                        $items[] = DialLink::render($applicant->applicant_phone_secondary, 'Secondary Phone');
                     }
                     if (!empty(trim($applicant->applicant_landline))) {
-                        $items[] = DialLink::render($applicant->applicant_landline, 'Landline', $revealPhone);
+                        $items[] = DialLink::render($applicant->applicant_landline, 'Landline');
                     }
 
                     return !empty($items) ? implode('<br>', $items) : '-';
