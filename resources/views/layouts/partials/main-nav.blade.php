@@ -168,7 +168,31 @@
                     </li>
                @endcanany
                <!-- end sales Menu -->
-          
+
+               <!-- scraper Menu -->
+               <li class="nav-item">
+                    <a class="nav-link menu-arrow" href="#sidebarScrap" data-bs-toggle="collapse" role="button" aria-expanded="false" aria-controls="sidebarScrap">
+                         <span class="nav-icon">
+                              <i class="ri-download-cloud-2-line"></i>
+                         </span>
+                         <span class="nav-text"> Scraper </span>
+                    </a>
+                    <div class="collapse" id="sidebarScrap">
+                         <ul class="nav sub-navbar-nav">
+                              <li class="sub-nav-item">
+                                   <a class="sub-nav-link" href="{{ route('scrap.office.list') }}">Scrapped Offices</a>
+                              </li>
+                              <li class="sub-nav-item">
+                                   <a class="sub-nav-link" href="{{ route('scrap.unit.list') }}">Scrapped Units</a>
+                              </li>
+                              <li class="sub-nav-item">
+                                   <a class="sub-nav-link" href="{{ route('scrap.sales.list') }}">Scrapped Sales</a>
+                              </li>
+                         </ul>
+                    </div>
+               </li>
+               <!-- end scraper Menu -->
+
                <!-- resources Menu -->
                @canany(['resource-direct-index', 'resource-indirect-index', 'resource-category-index', 'resource-rejected-index', 'resource-blocked-index', 'resource-crm-paid-index', 'resource-no-job-index', ])
                     <li class="nav-item">

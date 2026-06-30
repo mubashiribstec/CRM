@@ -56,6 +56,7 @@
                         <button class="list-group-item list-group-item-action" data-target="#form-sms" type="button" id="menu-sms" aria-controls="form-sms">SMS Settings</button>
                         <button class="list-group-item list-group-item-action" data-target="#form-smtp" type="button" id="menu-smtp" aria-controls="form-smtp">SMTP Settings</button>
                         <button class="list-group-item list-group-item-action" data-target="#form-dialing" type="button" id="menu-dialing" aria-controls="form-dialing">Dial Lock Settings</button>
+                        <button class="list-group-item list-group-item-action" data-target="#form-scraper" type="button" id="menu-scraper" aria-controls="form-scraper">Scraper Settings</button>
                     </div>
                 </div>
             </div>
@@ -451,6 +452,81 @@
                                     <div class="text-end">
                                         <button type="submit" class="btn btn-success">Save SMTP Settings</button>
                                     </div>
+                                </div>
+                            </form>
+                        </section>
+
+                        <!-- ── Scraper (SerpAPI-replacement) Settings ──────────────────── -->
+                        <section id="form-scraper" class="settings-form-section">
+                            <p class="text-muted">
+                                Configure scraper "actors" that fetch job/office data from an external
+                                source (Apify-compatible API, replacing SerpAPI). Each actor is identified
+                                by <code>provider</code> + <code>source</code> (e.g. apify / indeed).
+                            </p>
+
+                            <div class="table-responsive mb-4">
+                                <table class="table table-sm table-bordered align-middle" id="scraper-actors-table">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Key</th>
+                                            <th>Provider</th>
+                                            <th>Source</th>
+                                            <th>Actor ID</th>
+                                            <th>Base URL</th>
+                                            <th class="text-end">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @forelse(($scraperActors ?? []) as $actor)
+                                            <tr data-key="{{ $actor['key'] ?? '' }}">
+                                                <td><code>{{ $actor['key'] ?? '' }}</code></td>
+                                                <td>{{ $actor['provider'] ?? '' }}</td>
+                                                <td>{{ $actor['source'] ?? '' }}</td>
+                                                <td>{{ $actor['actor_id'] ?? '' }}</td>
+                                                <td class="text-truncate" style="max-width:240px;">{{ $actor['base_url'] ?? '' }}</td>
+                                                <td class="text-end text-nowrap">
+                                                    <button type="button" class="btn btn-sm btn-success run-scraper-actor" data-key="{{ $actor['key'] ?? '' }}">Run</button>
+                                                    <button type="button" class="btn btn-sm btn-danger delete-scraper-actor" data-key="{{ $actor['key'] ?? '' }}">Delete</button>
+                                                </td>
+                                            </tr>
+                                        @empty
+                                            <tr id="no-scraper-actors"><td colspan="6" class="text-center text-muted">No scraper actors configured yet.</td></tr>
+                                        @endforelse
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <h5 class="mb-3">Add / Update Actor</h5>
+                            <form id="scraper-settings-form">
+                                @csrf
+                                <div class="row g-3">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Provider</label>
+                                        <select class="form-select" name="actors[0][provider]" required>
+                                            <option value="apify">apify</option>
+                                            <option value="scrap">scrap</option>
+                                            <option value="other">other</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Source</label>
+                                        <input type="text" class="form-control" name="actors[0][source]" placeholder="indeed / totaljob / reed" required>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Actor / Dataset ID</label>
+                                        <input type="text" class="form-control" name="actors[0][actor_id]" placeholder="optional">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Token</label>
+                                        <input type="text" class="form-control" name="actors[0][token]" placeholder="optional API token">
+                                    </div>
+                                    <div class="col-md-12">
+                                        <label class="form-label">Base URL</label>
+                                        <input type="url" class="form-control" name="actors[0][base_url]" placeholder="https://api.apify.com/v2">
+                                    </div>
+                                </div>
+                                <div class="text-end mt-3">
+                                    <button type="submit" class="btn btn-success">Save Scraper Actor</button>
                                 </div>
                             </form>
                         </section>
@@ -1280,6 +1356,82 @@
                 });
             });
 
+        });
+    </script>
+
+    <!-- Scraper (SerpAPI-replacement) actor management -->
+    <script>
+        $(document).ready(function () {
+            const csrf = $('meta[name="csrf-token"]').attr('content');
+
+            // Save / update a scraper actor
+            $('#scraper-settings-form').on('submit', function (e) {
+                e.preventDefault();
+                $.ajax({
+                    url: '{{ route("settings.scraper.save") }}',
+                    method: 'POST',
+                    data: $(this).serialize(),
+                    success: function (res) {
+                        toastr.success(res.message || 'Scraper actor saved.');
+                        setTimeout(() => location.reload(), 800);
+                    },
+                    error: function (xhr) {
+                        const r = xhr.responseJSON || {};
+                        let msg = r.message || 'Failed to save scraper actor.';
+                        if (r.errors) msg = Object.values(r.errors).flat().join(' ');
+                        toastr.error(msg);
+                    }
+                });
+            });
+
+            // Run a scraper actor
+            $(document).on('click', '.run-scraper-actor', function () {
+                const key = $(this).data('key');
+                const $btn = $(this);
+                $btn.prop('disabled', true).text('Running...');
+                $.ajax({
+                    url: '{{ url("run-scraper-actor") }}/' + encodeURIComponent(key),
+                    method: 'POST',
+                    data: { _token: csrf },
+                    success: function (res) {
+                        toastr.success(res.message || 'Scraper ran.');
+                    },
+                    error: function (xhr) {
+                        toastr.error((xhr.responseJSON && xhr.responseJSON.message) || 'Failed to run scraper actor.');
+                    },
+                    complete: function () {
+                        $btn.prop('disabled', false).text('Run');
+                    }
+                });
+            });
+
+            // Delete a scraper actor
+            $(document).on('click', '.delete-scraper-actor', function () {
+                const key = $(this).data('key');
+                const $row = $(this).closest('tr');
+                Swal.fire({
+                    title: 'Delete this scraper actor?',
+                    text: key,
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#d33',
+                    confirmButtonText: 'Yes, delete it'
+                }).then((result) => {
+                    if (!result.isConfirmed) return;
+                    $.ajax({
+                        url: '{{ url("delete-scraper-actor") }}/' + encodeURIComponent(key),
+                        method: 'DELETE',
+                        data: { _token: csrf },
+                        success: function (res) {
+                            toastr.success(res.message || 'Scraper actor deleted.');
+                            $row.remove();
+                        },
+                        error: function (xhr) {
+                            toastr.error((xhr.responseJSON && xhr.responseJSON.message) || 'Failed to delete scraper actor.');
+                        }
+                    });
+                });
+            });
         });
     </script>
 @endsection
